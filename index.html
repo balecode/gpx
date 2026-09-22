@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#fc4c02" />
+  <title>StrideMap - GPX Running Route & Landmark Planner</title>
+  
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css"/>
+  
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Container Aplikasi -->
+  <div class="app-layout">
+    
+    <!-- Sidebar Kontrol -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-icon"><i class="fa-solid fa-person-running"></i></div>
+          <div>
+            <h1>StrideMap</h1>
+            <p class="subtitle">Running Route & GPX Creator</p>
+          </div>
+        </div>
+        <div class="sidebar-header-actions">
+          <button id="toggleSidebarBtn" class="icon-btn btn-ghost" title="Tutup Menu">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="search-section">
+        <div class="search-input-wrapper">
+          <i class="fa-solid fa-magnifying-glass search-icon"></i>
+          <input type="text" id="searchInput" placeholder="Cari kota, taman, nama jalan..." autocomplete="off"/>
+          <button id="clearSearchBtn" class="clear-btn" style="display: none;"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="searchResults" class="search-results-dropdown" style="display: none;"></div>
+      </div>
+
+      <!-- Mode Selector -->
+      <div class="section-card mode-card">
+        <div class="section-label">Mode Interaksi Peta</div>
+        <div class="btn-group-segmented mode-3-col">
+          <button id="modeMoveBtn" class="segment-btn active" data-mode="move" title="Geser & jelajahi peta tanpa menambah titik rute">
+            <i class="fa-solid fa-hand"></i>
+            <span>Geser</span>
+          </button>
+          <button id="modeRouteBtn" class="segment-btn" data-mode="route" title="Klik peta untuk membuat jalur lari">
+            <i class="fa-solid fa-route"></i>
+            <span>Buat Rute</span>
+          </button>
+          <button id="modeLandmarkBtn" class="segment-btn" data-mode="landmark" title="Klik peta untuk menaruh landmark/POI">
+            <i class="fa-solid fa-location-dot"></i>
+            <span>Landmark</span>
+          </button>
+        </div>
+
+        <!-- Hint jika mode Move aktif -->
+        <div id="moveHintOptions" class="move-suboptions">
+          <p class="helper-text"><i class="fa-solid fa-info-circle"></i> <strong>Mode Geser Aktif:</strong> Anda bebas menggeser (*drag/pan*) dan zoom peta tanpa khawatir salah klik menambah rute.</p>
+        </div>
+
+        <!-- Opsi Routing jika mode Rute aktif -->
+        <div id="routingOptions" class="routing-suboptions" style="display: none;">
+          <label class="toggle-option">
+            <input type="checkbox" id="snapRoadToggle" checked>
+            <span class="toggle-slider"></span>
+            <span class="toggle-text"><i class="fa-solid fa-magnet"></i> Otomatis Ikuti Jalan (OSRM Foot)</span>
+          </label>
+          <small class="helper-text">Matikan jika ingin rute bebas/lurus (off-road / trek lapangan).</small>
+        </div>
+
+        <!-- Opsi Landmark jika mode Landmark aktif -->
+        <div id="landmarkOptions" class="landmark-suboptions" style="display: none;">
+          <div class="landmark-type-selector">
+            <label class="input-label">Pilih Kategori Landmark:</label>
+            <div class="landmark-badges" id="landmarkBadgeGroup">
+              <button type="button" class="badge-btn active" data-type="km" data-label="KM Marker" data-icon="fa-location-arrow" data-color="#059669">
+                <i class="fa-solid fa-location-arrow"></i> KM Marker
+              </button>
+              <button type="button" class="badge-btn" data-type="water" data-label="Water Station" data-icon="fa-bottle-water" data-color="#0284c7">
+                <i class="fa-solid fa-bottle-water"></i> Water Station
+              </button>
+              <button type="button" class="badge-btn" data-type="cheering" data-label="Cheering Area" data-icon="fa-bullhorn" data-color="#ec4899">
+                <i class="fa-solid fa-bullhorn"></i> Cheering Area
+              </button>
+              <button type="button" class="badge-btn" data-type="start_finish" data-label="Start & Finish" data-icon="fa-flag-checkered" data-color="#7c3aed">
+                <i class="fa-solid fa-flag-checkered"></i> Start & Finish
+              </button>
+              <button type="button" class="badge-btn" data-type="start" data-label="Start Line" data-icon="fa-flag-checkered" data-color="#16a34a">
+                <i class="fa-solid fa-play"></i> Start
+              </button>
+              <button type="button" class="badge-btn" data-type="finish" data-label="Finish Line" data-icon="fa-flag-checkered" data-color="#dc2626">
+                <i class="fa-solid fa-flag-checkered"></i> Finish
+              </button>
+              <button type="button" class="badge-btn" data-type="checkpoint" data-label="Check Point" data-icon="fa-stopwatch" data-color="#f59e0b">
+                <i class="fa-solid fa-stopwatch"></i> Checkpoint
+              </button>
+              <button type="button" class="badge-btn" data-type="toilet" data-label="Toilet / Restroom" data-icon="fa-restroom" data-color="#64748b">
+                <i class="fa-solid fa-restroom"></i> Toilet
+              </button>
+              <button type="button" class="badge-btn" data-type="photo" data-label="Photo Spot" data-icon="fa-camera" data-color="#8b5cf6">
+                <i class="fa-solid fa-camera"></i> Foto Spot
+              </button>
+              <button type="button" class="badge-btn" data-type="hill" data-label="Hill / Tanjakan" data-icon="fa-mountain" data-color="#ea580c">
+                <i class="fa-solid fa-mountain"></i> Tanjakan
+              </button>
+              <button type="button" class="badge-btn" data-type="custom" data-label="Landmark Khusus" data-icon="fa-star" data-color="#e11d48">
+                <i class="fa-solid fa-star"></i> Lainnya
+              </button>
+            </div>
+            <p class="helper-text mt-1"><i class="fa-solid fa-arrow-pointer"></i> Klik lokasi di peta untuk menancapkan pin.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Statistik Rute -->
+      <div class="section-card stats-card">
+        <div class="section-label">Statistik Rute Lari</div>
+        <div class="stats-grid">
+          <div class="stat-box">
+            <span class="stat-value" id="distKm">0.00</span>
+            <span class="stat-unit">KM</span>
+            <span class="stat-title">Jarak Total</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="estTime">00:00:00</span>
+            <span class="stat-unit">JAM:MENIT</span>
+            <span class="stat-title">Estimasi Waktu</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="pointCount">0</span>
+            <span class="stat-unit">TITIK</span>
+            <span class="stat-title">Waypoint Jalur</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-value" id="landmarkCount">0</span>
+            <span class="stat-unit">PIN</span>
+            <span class="stat-title">Landmark</span>
+          </div>
+        </div>
+
+        <!-- Target Pacing & Estimasi Jam Pelari -->
+        <div class="pacing-wrapper">
+          <div class="pacing-header">
+            <label for="paceRange"><i class="fa-solid fa-gauge-high"></i> Target Pace Lari:</label>
+            <span id="paceDisplay" class="pace-badge">6:00 /km</span>
+          </div>
+          <div class="pacing-slider-row">
+            <input type="range" id="paceRange" min="180" max="600" step="5" value="360">
+          </div>
+
+          <div class="timing-settings-grid">
+            <div class="timing-field">
+              <label for="startTimeInput"><i class="fa-regular fa-clock"></i> Jam Mulai Lari (Start):</label>
+              <input type="time" id="startTimeInput" class="input-time" value="06:00">
+            </div>
+            <div class="timing-field">
+              <label for="paceMinutesInput"><i class="fa-solid fa-person-running"></i> Kecepatan (Pace):</label>
+              <div class="pace-inputs-inline">
+                <input type="number" id="paceMinInput" class="input-pace-num" min="3" max="15" value="6" placeholder="Min">
+                <span class="pace-sep">:</span>
+                <input type="number" id="paceSecInput" class="input-pace-num" min="0" max="59" step="5" value="00" placeholder="Detik">
+                <span class="pace-suffix">/km</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Daftar Landmark & Legend (Bisa dibaca Google Maps / GPX) -->
+      <div class="section-card landmarks-list-card">
+        <div class="section-header-row">
+          <span class="section-label mb-0"><i class="fa-solid fa-list-check"></i> Daftar Landmark & Legend</span>
+          <span class="badge-count" id="landmarkTotalBadge">0</span>
+        </div>
+        <div id="landmarkEmpty" class="empty-state">
+          <i class="fa-solid fa-map-pin"></i>
+          <span>Belum ada landmark. Klik tab "Beri Landmark" di atas untuk menambah.</span>
+        </div>
+        <ul id="landmarkList" class="landmark-items-list"></ul>
+      </div>
+
+      <!-- Action Buttons (Undo, Redo, Loop, Reverse, Clear) -->
+      <div class="action-buttons-grid">
+        <button id="undoBtn" class="btn btn-secondary" title="Batalkan aksi terakhir (Shortcut: Ctrl+Z)" disabled>
+          <i class="fa-solid fa-rotate-left"></i> Undo <kbd class="kbd-shortcut">Ctrl+Z</kbd>
+        </button>
+        <button id="redoBtn" class="btn btn-secondary" title="Ulangi aksi yang dibatalkan (Shortcut: Ctrl+Y)" disabled>
+          <i class="fa-solid fa-rotate-right"></i> Redo <kbd class="kbd-shortcut">Ctrl+Y</kbd>
+        </button>
+        <button id="loopRouteBtn" class="btn btn-secondary" title="Hubungkan kembali ke titik awal" disabled>
+          <i class="fa-solid fa-arrows-spin"></i> Buat Loop
+        </button>
+        <button id="reverseRouteBtn" class="btn btn-secondary" title="Balik arah rute" disabled>
+          <i class="fa-solid fa-arrows-left-right"></i> Balik Arah
+        </button>
+        <button id="clearBtn" class="btn btn-danger-outline grid-col-span-2" title="Hapus semua rute & landmark">
+          <i class="fa-solid fa-trash-can"></i> Reset Semua
+        </button>
+      </div>
+
+      <!-- Export / Import Section -->
+      <div class="section-card export-card">
+        <div class="section-label">Simpan & Bagikan Jalur</div>
+        <div class="input-group-row">
+          <input type="text" id="routeTitleInput" class="input-text" placeholder="Nama Jalur (contoh: Morning Run GBK)" value="My Running Route" />
+        </div>
+        
+        <div class="export-btn-group">
+          <button id="exportGpxBtn" class="btn btn-primary btn-large">
+            <i class="fa-solid fa-file-arrow-down"></i>
+            <div>
+              <strong>Unduh File GPX</strong>
+              <small>Garmin, Strava, Coros, Google My Maps</small>
+            </div>
+          </button>
+          
+          <button id="exportKmlBtn" class="btn btn-outline" title="Format KML untuk visualisasi langsung di Google Earth / Google Maps">
+            <i class="fa-solid fa-earth-americas"></i> Unduh KML (Google Earth/Maps)
+          </button>
+        </div>
+
+        <div class="import-divider">
+          <span>atau buka file yang sudah ada</span>
+        </div>
+
+        <label class="btn btn-ghost-border file-input-label">
+          <i class="fa-solid fa-file-arrow-up"></i> Impor File GPX / KML
+          <input type="file" id="gpxFileInput" accept=".gpx,.kml" style="display: none;" />
+        </label>
+      </div>
+
+      <div class="sidebar-footer">
+        <p><i class="fa-solid fa-circle-info"></i> File GPX & KML dilengkapi tag Waypoints (<code>&lt;wpt&gt;</code>) dan Placemarks agar legend, icon, serta catatan terbaca otomatis di <strong>Google My Maps</strong> dan <strong>GPS Smartwatch</strong>.</p>
+      </div>
+
+      <!-- Handle Tarik Tepi untuk Mengubah Lebar Sidebar (Desktop & Smartphone) -->
+      <div id="sidebarResizeHandle" class="sidebar-resize-handle" title="Tarik untuk memperlebar / memperkecil sidebar"></div>
+
+    </aside>
+    
+    <!-- Mobile Sidebar Backdrop Overlay -->
+    <div id="sidebarBackdrop" class="sidebar-backdrop" style="display: none;"></div>
+
+    <!-- Main Map View -->
+    <main class="map-container">
+      <div id="map"></div>
+
+      <!-- Floating Toolbar atas Peta -->
+      <div class="map-floating-bar">
+        <button id="expandSidebarBtn" class="floating-btn" style="display: none;" title="Buka Menu">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <div class="map-style-selector">
+          <button class="layer-btn active" data-layer="osm" title="Peta Standar OSM">
+            <i class="fa-solid fa-map"></i> Jalan
+          </button>
+          <button class="layer-btn" data-layer="satellite" title="Foto Udara / Satelit ESRI">
+            <i class="fa-solid fa-satellite"></i> Satelit
+          </button>
+          <button class="layer-btn" data-layer="topo" title="Kontur Elevasi OpenTopoMap">
+            <i class="fa-solid fa-mountain-sun"></i> Topo
+          </button>
+        </div>
+
+        <div class="map-tools">
+          <button id="quickUndoBtn" class="floating-btn" title="Undo (Ctrl+Z)" disabled>
+            <i class="fa-solid fa-rotate-left"></i>
+          </button>
+          <button id="quickRedoBtn" class="floating-btn" title="Redo (Ctrl+Y)" disabled>
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+          <button id="locateMeBtn" class="floating-btn" title="Cari Lokasi Saya Sekarang">
+            <i class="fa-solid fa-location-crosshairs"></i>
+          </button>
+          <button id="fitBoundsBtn" class="floating-btn" title="Fokuskan ke Seluruh Rute">
+            <i class="fa-solid fa-route"></i>
+          </button>
+          <button id="fullScreenBtn" class="floating-btn" title="Layar Penuh / Full Screen (Sembunyikan URL & Bar Browser)">
+            <i class="fa-solid fa-expand"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Modal Dialog untuk Edit/Tambah Landmark -->
+      <div id="landmarkModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box">
+          <div class="modal-header">
+            <h3 id="modalTitle"><i class="fa-solid fa-location-dot"></i> Tambah Landmark</h3>
+            <button class="modal-close" id="closeModalBtn">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label for="landmarkNameInput">Nama / Keterangan Landmark:</label>
+              <input type="text" id="landmarkNameInput" class="input-text" placeholder="Contoh: Water Station KM 5 / Indomaret" />
+            </div>
+            <div class="form-group">
+              <label for="landmarkDescInput">Catatan Tambahan (Muncul di Google Maps):</label>
+              <textarea id="landmarkDescInput" class="input-text" rows="2" placeholder="Contoh: Tersedia air mineral & isotonic drink"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Kategori / Legend:</label>
+              <div class="modal-badges" id="modalBadgePicker"></div>
+            </div>
+
+            <!-- Opsi Estimasi Jam Pelari di Titik Landmark Ini -->
+            <div class="form-group time-estimate-option-card">
+              <div class="checkbox-row">
+                <input type="checkbox" id="showTimeEstimateCheck" checked>
+                <label for="showTimeEstimateCheck">
+                  <strong><i class="fa-solid fa-stopwatch"></i> Tampilkan Estimasi Jam Pelari di Titik Ini</strong>
+                </label>
+              </div>
+              <p class="helper-text-sm" id="modalTimeEstimateHint">
+                Otomatis dihitung dari titik Start (06:00) dengan Target Pace Anda.
+              </p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button id="cancelLandmarkBtn" class="btn btn-secondary">Batal</button>
+            <button id="saveLandmarkBtn" class="btn btn-primary">Simpan Landmark</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Loading Overlay -->
+      <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <span id="loadingText">Menghitung rute tercepat...</span>
+      </div>
+    </main>
+
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Application JS -->
+  <script src="app.js"></script>
+</body>
+</html>
