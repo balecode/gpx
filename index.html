@@ -55,35 +55,72 @@
 
       <!-- Mode Selector -->
       <div class="section-card mode-card">
-        <div class="section-label">Mode Interaksi Peta</div>
-        <div class="btn-group-segmented mode-3-col">
-          <button id="modeMoveBtn" class="segment-btn active" data-mode="move" title="Geser & jelajahi peta tanpa menambah titik rute">
-            <i class="fa-solid fa-hand"></i>
-            <span>Geser</span>
-          </button>
-          <button id="modeRouteBtn" class="segment-btn" data-mode="route" title="Klik peta untuk membuat jalur lari">
-            <i class="fa-solid fa-route"></i>
-            <span>Buat Rute</span>
-          </button>
-          <button id="modeLandmarkBtn" class="segment-btn" data-mode="landmark" title="Klik peta untuk menaruh landmark/POI">
-            <i class="fa-solid fa-location-dot"></i>
-            <span>Landmark</span>
-          </button>
+        <div class="mode-header-row">
+          <div class="section-label">Mode Interaksi Peta</div>
+          <div class="mode-scroll-nav">
+            <button type="button" id="modeScrollLeftBtn" class="mode-arrow-btn" title="Geser ke kiri" aria-label="Geser pilihan mode ke kiri">
+              <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <button type="button" id="modeScrollRightBtn" class="mode-arrow-btn" title="Geser ke kanan" aria-label="Geser pilihan mode ke kanan">
+              <i class="fa-solid fa-chevron-right"></i>
+            </button>
+          </div>
+        </div>
+        <div class="mode-scroll-container" id="modeScrollContainer">
+          <div class="btn-group-segmented mode-5-col" id="modeSelectorGroup">
+            <button id="modeMoveBtn" class="segment-btn" data-mode="move" title="Geser & jelajahi peta tanpa menambah titik rute">
+              <i class="fa-solid fa-hand"></i>
+              <span>Geser</span>
+            </button>
+            <button id="modeRouteBtn" class="segment-btn active" data-mode="route" title="Klik peta untuk membuat jalur lari">
+              <i class="fa-solid fa-route"></i>
+              <span>Rute</span>
+            </button>
+            <button id="modeLandmarkBtn" class="segment-btn" data-mode="landmark" title="Klik peta untuk menaruh landmark/POI">
+              <i class="fa-solid fa-location-dot"></i>
+              <span>Landmark</span>
+            </button>
+            <button id="modePaceCheckBtn" class="segment-btn" data-mode="pacecheck" title="Klik titik pada rute untuk analisis jam & pace pelari">
+              <i class="fa-solid fa-stopwatch-20"></i>
+              <span>Cek Pace</span>
+            </button>
+            <button id="modeLiveBtn" class="segment-btn" data-mode="live" title="Mode Live: Simulasi posisi pelari real-time / kontrol waktu">
+              <i class="fa-solid fa-person-running"></i>
+              <span>Live</span>
+            </button>
+          </div>
         </div>
 
         <!-- Hint jika mode Move aktif -->
-        <div id="moveHintOptions" class="move-suboptions">
+        <div id="moveHintOptions" class="move-suboptions" style="display: none;">
           <p class="helper-text"><i class="fa-solid fa-info-circle"></i> <strong>Mode Geser Aktif:</strong> Anda bebas menggeser (*drag/pan*) dan zoom peta tanpa khawatir salah klik menambah rute.</p>
         </div>
 
         <!-- Opsi Routing jika mode Rute aktif -->
-        <div id="routingOptions" class="routing-suboptions" style="display: none;">
-          <label class="toggle-option">
-            <input type="checkbox" id="snapRoadToggle" checked>
-            <span class="toggle-slider"></span>
-            <span class="toggle-text"><i class="fa-solid fa-magnet"></i> Otomatis Ikuti Jalan (OSRM Foot)</span>
-          </label>
-          <small class="helper-text">Matikan jika ingin rute bebas/lurus (off-road / trek lapangan).</small>
+        <div id="routingOptions" class="routing-suboptions">
+          <div class="routing-mode-selector">
+            <div class="routing-mode-header">
+              <label class="input-label" style="margin-bottom:0;">Metode Sambungan Titik:</label>
+              <span id="routingModeBadge" class="routing-badge auto"><i class="fa-solid fa-magnet"></i> Auto Jalan</span>
+            </div>
+            <div class="btn-group-segmented mode-2-col" id="routingModeButtonGroup">
+              <button type="button" id="routeModeAutoBtn" class="segment-btn active" title="Otomatis mengikuti lekukan jalan raya / trotoar (OSRM Foot)">
+                <i class="fa-solid fa-magnet text-sky"></i>
+                <span>Auto Jalan</span>
+              </button>
+              <button type="button" id="routeModeManualBtn" class="segment-btn" title="Garis lurus bebas manual (bisa memotong taman, gedung, atau lawan arah)">
+                <i class="fa-solid fa-pen-ruler text-orange"></i>
+                <span>Manual Bebas</span>
+              </button>
+            </div>
+            <p id="routingModeHintText" class="helper-text-sm" style="margin: 4px 0 0 0;">
+              <i class="fa-solid fa-circle-check text-sky"></i> <strong>Mode Auto:</strong> Titik baru otomatis mengikuti lekukan jalan.
+            </p>
+            <div class="routing-hybrid-tip">
+              <i class="fa-solid fa-lightbulb text-amber"></i> <strong>Tips Hybrid:</strong> Anda bisa mengganti mode kapan saja di rute yang sama. Segmen yang sudah dibuat sebelumnya tidak akan berubah!
+            </div>
+          </div>
+          <input type="checkbox" id="snapRoadToggle" checked style="display: none;">
         </div>
 
         <!-- Opsi Landmark jika mode Landmark aktif -->
@@ -128,11 +165,130 @@
             <p class="helper-text mt-1"><i class="fa-solid fa-arrow-pointer"></i> Klik lokasi di peta untuk menancapkan pin.</p>
           </div>
         </div>
+
+        <!-- Opsi Cek Pace jika mode Cek Pace aktif -->
+        <div id="paceCheckOptions" class="pacecheck-suboptions" style="display: none;">
+          <div class="pacecheck-intro">
+            <p class="helper-text"><i class="fa-solid fa-location-crosshairs"></i> <strong>Mode Cek Pace:</strong> Klik titik mana saja pada garis rute untuk menganalisis waktu & pace pelari di jam tertentu.</p>
+          </div>
+          
+          <div id="paceCheckEmpty" class="pacecheck-placeholder">
+            <i class="fa-solid fa-arrow-pointer"></i>
+            <span>Belum ada titik yang dipilih. Silakan klik jalur lari di peta.</span>
+          </div>
+
+          <div id="paceCheckResultCard" class="pacecheck-result-card" style="display: none;">
+            <div class="timing-field highlight">
+              <label for="inspectTargetTimeInput"><i class="fa-solid fa-clock"></i> Target Jam Tiba di Titik Ini:</label>
+              <input type="time" id="inspectTargetTimeInput" class="input-time input-time-highlight" value="06:30">
+            </div>
+
+            <!-- List Perbandingan Pace Masing-Masing Rute Terlihat -->
+            <div class="section-label mb-1" style="font-size: 0.72rem; margin-top: 4px;">
+              <i class="fa-solid fa-calculator"></i> Analisis Pace Rute di Titik Ini:
+            </div>
+            <div id="paceMultiRouteList" class="pace-multiroute-container"></div>
+
+            <!-- Action Buttons -->
+            <div class="pacecheck-actions">
+              <button type="button" id="saveAsLandmarkBtn" class="btn btn-secondary btn-sm" title="Simpan titik ini sebagai Landmark Checkpoint">
+                <i class="fa-solid fa-bookmark"></i> Buat Landmark Checkpoint
+              </button>
+              <button type="button" id="clearInspectBtn" class="btn btn-ghost-sm" title="Hapus titik inspeksi pace">
+                <i class="fa-solid fa-xmark"></i> Hapus Titik
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Opsi Mode Live / Simulasi Pelari -->
+        <div id="liveSimulationOptions" class="live-suboptions" style="display: none;">
+          <div class="live-clock-card">
+            <div class="live-clock-header">
+              <span class="live-badge-status" id="liveSimulationStatus"><span class="pulse-dot"></span> SIMULASI LIVE</span>
+              <button type="button" id="liveSyncCurrentTimeBtn" class="btn-sync-time" title="Gunakan waktu jam saat ini di komputer Anda">
+                <i class="fa-regular fa-clock"></i> Jam Nyata
+              </button>
+            </div>
+            
+            <div class="live-clock-display-wrap">
+              <div class="live-clock-display" id="liveClockDisplay">06:30:00</div>
+              <div class="live-clock-sub" id="liveClockSub">Waktu Lomba Berjalan</div>
+            </div>
+            
+            <!-- Scrub Slider Waktu -->
+            <div class="live-slider-row">
+              <input type="range" id="liveTimeSlider" min="14400" max="43200" step="1" value="23400" class="live-time-slider">
+              <div class="live-slider-labels">
+                <span id="liveSliderMinLabel">04:00</span>
+                <span id="liveSliderCurrentLabel" class="live-slider-cur-tag">06:30:00</span>
+                <span id="liveSliderMaxLabel">12:00</span>
+              </div>
+            </div>
+
+            <!-- Play / Pause & Kecepatan Simulasi -->
+            <div class="live-player-controls">
+              <button type="button" id="liveStepBackBtn" class="player-btn" title="Mundur 5 Menit"><i class="fa-solid fa-backward-step"></i> -5m</button>
+              <button type="button" id="livePlayPauseBtn" class="player-btn primary" title="Mulai / Jeda Animasi Pelari"><i class="fa-solid fa-play"></i> Mulai</button>
+              <button type="button" id="liveStepForwardBtn" class="player-btn" title="Maju 5 Menit"><i class="fa-solid fa-forward-step"></i> +5m</button>
+              
+              <div class="speed-selector">
+                <span class="speed-label">Speed:</span>
+                <select id="liveSpeedSelect" class="speed-select" title="Kecepatan Waktu Simulasi">
+                  <option value="1">1x (Waktu Nyata)</option>
+                  <option value="5">5x</option>
+                  <option value="15" selected>15x</option>
+                  <option value="60">60x (1 detik = 1 mnt)</option>
+                  <option value="180">180x (3x Lebih Cepat)</option>
+                  <option value="360">360x (Ultra Cepat)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pace Filters (Pace 4, 5, 6, 7, 8) -->
+          <div class="live-pace-filters">
+            <div class="section-label mb-1"><i class="fa-solid fa-person-running"></i> Tampilkan Pelari Pace:</div>
+            <div class="live-pace-chips" id="livePaceChips"></div>
+          </div>
+
+          <!-- Live Summary List of Runners per Route -->
+          <div class="live-runner-status-section">
+            <div class="section-label mb-1"><i class="fa-solid fa-chart-line"></i> Posisi Pelari Tiap Rute:</div>
+            <div class="live-runner-status-list" id="liveRunnerStatusList"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Manajemen Multi-Rute (5K, 10K, 21K, 42K) -->
+      <div class="section-card multi-route-card">
+        <div class="section-header-row">
+          <span class="section-label mb-0"><i class="fa-solid fa-layer-group"></i> Kategori Rute</span>
+          <button type="button" id="addNewRouteBtn" class="btn btn-ghost-border btn-xs" title="Tambah Kategori Rute Baru">
+            <i class="fa-solid fa-plus"></i> Rute Baru
+          </button>
+        </div>
+
+        <div class="route-preset-bar">
+          <span class="preset-label">Tambah Cepat:</span>
+          <div class="route-preset-chips" id="routePresetChips">
+            <button type="button" class="preset-chip-btn" data-preset="5k" title="Tambah / Pilih Rute 5K">+ 5K</button>
+            <button type="button" class="preset-chip-btn" data-preset="10k" title="Tambah / Pilih Rute 10K">+ 10K</button>
+            <button type="button" class="preset-chip-btn" data-preset="21k" title="Tambah / Pilih Rute 21K (Half Marathon)">+ 21K</button>
+            <button type="button" class="preset-chip-btn" data-preset="42k" title="Tambah / Pilih Rute 42K (Full Marathon)">+ 42K</button>
+          </div>
+        </div>
+
+        <!-- Daftar Rute Aktif & Terlihat -->
+        <div class="route-items-list" id="routeList"></div>
       </div>
 
       <!-- Statistik Rute -->
       <div class="section-card stats-card">
-        <div class="section-label">Statistik Rute Lari</div>
+        <div class="section-header-row">
+          <div class="section-label mb-0">Statistik Rute Lari</div>
+          <span id="activeRouteStatsBadge" class="active-route-badge">Rute Aktif</span>
+        </div>
         <div class="stats-grid">
           <div class="stat-box">
             <span class="stat-value" id="distKm">0.00</span>
@@ -168,7 +324,7 @@
 
           <div class="timing-settings-grid">
             <div class="timing-field">
-              <label for="startTimeInput"><i class="fa-regular fa-clock"></i> Jam Mulai Lari (Start):</label>
+              <label for="startTimeInput"><i class="fa-regular fa-clock"></i> Jam Mulai (<span id="activeRouteStartBadge" class="active-route-name-tag">Start</span>):</label>
               <input type="time" id="startTimeInput" class="input-time" value="06:00">
             </div>
             <div class="timing-field">
@@ -269,17 +425,16 @@
           <i class="fa-solid fa-bars"></i>
         </button>
 
-        <div class="map-style-selector">
-          <button class="layer-btn active" data-layer="osm" title="Peta Standar OSM">
-            <i class="fa-solid fa-map"></i> Jalan
+        <!-- Floating Quick Routing Mode Toggle (Aktif di Mode Rute) -->
+        <div id="floatingRoutingToggle" class="floating-routing-toggle" style="display: none;">
+          <button type="button" id="floatingAutoRouteBtn" class="pill-btn active" title="Mode Auto: Titik baru mengikuti lekukan jalan raya (OSRM)">
+            <i class="fa-solid fa-magnet text-sky"></i> Auto
           </button>
-          <button class="layer-btn" data-layer="satellite" title="Foto Udara / Satelit ESRI">
-            <i class="fa-solid fa-satellite"></i> Satelit
-          </button>
-          <button class="layer-btn" data-layer="topo" title="Kontur Elevasi OpenTopoMap">
-            <i class="fa-solid fa-mountain-sun"></i> Topo
+          <button type="button" id="floatingManualRouteBtn" class="pill-btn" title="Mode Manual: Titik baru ditarik garis lurus bebas (memotong jalan / taman / lawan arah)">
+            <i class="fa-solid fa-pen-ruler text-orange"></i> Manual
           </button>
         </div>
+
 
         <div class="map-tools">
           <button id="quickUndoBtn" class="floating-btn" title="Undo (Ctrl+Z)" disabled>
@@ -337,6 +492,70 @@
           <div class="modal-footer">
             <button id="cancelLandmarkBtn" class="btn btn-secondary">Batal</button>
             <button id="saveLandmarkBtn" class="btn btn-primary">Simpan Landmark</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Edukasi / Bantuan GPS di Smartphone (Insecure Origin) -->
+      <div id="gpsHelpModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box gps-help-modal-box">
+          <div class="modal-header">
+            <h3><i class="fa-solid fa-location-crosshairs text-sky"></i> Akses Lokasi di Smartphone</h3>
+            <button class="modal-close" id="closeGpsHelpModalBtn">&times;</button>
+          </div>
+          <div class="modal-body gps-help-body">
+            <div class="gps-notice-box">
+              <strong><i class="fa-solid fa-circle-info"></i> Mengapa GPS Diblokir?</strong>
+              <p>
+                Browser smartphone (Chrome & Safari) membatasi sensor GPS langsung <strong>hanya untuk HTTPS atau localhost</strong>. Karena halaman ini dibuka via IP jaringan lokal (<code>http://192.168.x.x</code>), browser HP menolak akses GPS dengan pesan <em>"Only secure origins are allowed"</em>.
+              </p>
+            </div>
+
+            <h4 class="gps-solutions-title">Solusi & Alternatif yang Dapat Anda Gunakan:</h4>
+            
+            <!-- Opsi 1: IP Geolocation -->
+            <div class="gps-option-card">
+              <div class="gps-option-header">
+                <span class="gps-option-badge instant"><i class="fa-solid fa-bolt"></i> Rekomendasi Cepat</span>
+                <strong class="gps-option-title"><i class="fa-solid fa-satellite-dish text-sky"></i> 1. Gunakan Perkiraan Lokasi Jaringan (IP)</strong>
+              </div>
+              <p class="gps-option-desc">
+                Perkirakan posisi Anda berdasarkan lokasi ISP / jaringan internet secara instan tanpa perlu setelan teknis di HP.
+              </p>
+              <button type="button" id="gpsUseIpBtn" class="btn btn-primary btn-sm btn-block-custom">
+                <i class="fa-solid fa-crosshairs"></i> Deteksi Lokasi via Jaringan (IP) Sekarang
+              </button>
+            </div>
+
+            <!-- Opsi 2: Chrome Android Flag Bypass -->
+            <div class="gps-option-card">
+              <div class="gps-option-header">
+                <span class="gps-option-badge"><i class="fa-brands fa-chrome"></i> Android Chrome</span>
+                <strong class="gps-option-title"><i class="fa-solid fa-shield-halved text-orange"></i> 2. Bypass GPS Akurat di Chrome Android</strong>
+              </div>
+              <ol class="gps-steps-list">
+                <li>Buka tab baru di browser Chrome HP Anda: <br><code class="code-pill">chrome://flags/#unsafely-treat-insecure-origin-as-secure</code></li>
+                <li>Ketik / paste alamat IP web ini di kolom isian: <br><code id="gpsOriginUrlCode" class="code-pill text-highlight"></code></li>
+                <li>Ubah pilihan dari <em>Default</em> menjadi <strong>Enabled</strong>.</li>
+                <li>Tekan tombol biru <strong>Relaunch</strong> di pojok bawah Chrome. Sensor GPS HP Anda kini aktif 100%!</li>
+              </ol>
+            </div>
+
+            <!-- Opsi 3: Tunnel HTTPS -->
+            <div class="gps-option-card">
+              <div class="gps-option-header">
+                <span class="gps-option-badge"><i class="fa-solid fa-lock"></i> HTTPS Tunnel</span>
+                <strong class="gps-option-title"><i class="fa-solid fa-globe text-purple"></i> 3. Jalankan Local HTTPS Tunnel di Laptop</strong>
+              </div>
+              <p class="gps-option-desc">
+                Jalankan perintah ini di PowerShell laptop/PC Anda untuk mendapatkan tautan HTTPS instan:
+              </p>
+              <code class="code-block">npx localtunnel --port 5500</code>
+              <p class="gps-option-sub">Lalu buka URL <code>https://...</code> yang dihasilkan pada browser HP Anda.</p>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="closeGpsHelpModalBtn2" class="btn btn-secondary">Tutup</button>
           </div>
         </div>
       </div>
