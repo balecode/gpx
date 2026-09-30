@@ -1,7 +1,7 @@
 /**
  * StrideMap - Running Route & GPX/KML Creator
  * Features:
- * - Leaflet map with multiple layers (OSM, Satellite, Topo)
+ * - Leaflet map with OpenStreetMap
  * - Search bar with Nominatim Geocoding API
  * - Snap-to-Road pedestrian routing with OSRM
  * - Freehand / straight line routing mode
@@ -26,44 +26,159 @@ const LANDMARK_TYPES = {
   custom: { label: 'Landmark Khusus', icon: 'fa-star', color: '#e11d48', sym: 'Pin, Red' }
 };
 
+const ROUTE_PRESETS = {
+  '5k': { name: 'Rute 5K', color: '#0284c7', startTime: '06:30', paceSeconds: 360 },
+  '10k': { name: 'Rute 10K', color: '#10b981', startTime: '06:00', paceSeconds: 390 },
+  '21k': { name: 'Rute 21K (HM)', color: '#f59e0b', startTime: '05:30', paceSeconds: 360 },
+  '42k': { name: 'Rute 42K (FM)', color: '#8b5cf6', startTime: '05:00', paceSeconds: 360 }
+};
+
+const COLOR_PALETTE = ['#0284c7', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#fc4c02', '#06b6d4', '#84cc16'];
+
+const LIVE_PACES = [
+  { pace: 3, name: 'Pace 3', paceSeconds: 180, color: '#ec4899', speedKmH: '20.0' },
+  { pace: 4, name: 'Pace 4', paceSeconds: 240, color: '#ef4444', speedKmH: '15.0' },
+  { pace: 5, name: 'Pace 5', paceSeconds: 300, color: '#ea580c', speedKmH: '12.0' },
+  { pace: 6, name: 'Pace 6', paceSeconds: 360, color: '#10b981', speedKmH: '10.0' },
+  { pace: 7, name: 'Pace 7', paceSeconds: 420, color: '#0284c7', speedKmH: '8.6' },
+  { pace: 8, name: 'Pace 8', paceSeconds: 480, color: '#8b5cf6', speedKmH: '7.5' }
+];
+
 class StrideMapApp {
   constructor() {
     this.map = null;
-    this.activeTileLayer = null;
-    this.baseLayers = {};
+    this.tileLayer = null;
     
     this.currentMode = 'move'; // Default mode: 'move' (geser & jelajahi peta tanpa klik rute)
-    this.snapToRoad = true;
     
-    this.waypoints = [];
-    this.routePolyline = null;
-    this.waypointMarkers = [];
+    // Sistem Manajemen Multi-Rute
+    this.routes = [];
+    this.activeRouteId = null;
 
-    // History state untuk Undo / Redo
-    this.undoStack = [];
-    this.redoStack = [];
-    
+    // Landmark & POI
     this.landmarks = [];
     this.landmarkMarkers = [];
     this.selectedLandmarkType = 'water';
     this.pendingLandmarkLatLng = null;
 
-    this.paceSeconds = 360;
-    this.startTime = '06:00';
-
     // Loop Snapping Recommendation (Start-to-Finish close detector)
     this.isNearStart = false;
     this.loopSnapMarker = null;
 
+    // Mode Cek Pace Titik (Point Pace Inspector)
+    this.paceInspectMarker = null;
+    this.paceInspectState = null;
+
+    // Mode Live / Simulasi Pelari
+    this.liveSimulationRunning = false;
+    this.liveSimulationTimer = null;
+    this.liveCurrentSeconds = 6 * 3600 + 30 * 60; // 06:30:00
+    this.liveSpeedMultiplier = 15;
+    this.liveActivePaces = new Set([3, 4, 5, 6, 7, 8]);
+    this.liveRunnerMarkers = new Map(); // key: `${route.id}_p${pace}` -> L.marker
+
     this.initDOMElements();
     this.initMap();
-    this.setMode('move');
+    // Buat rute default awal (Rute 5K) setelah map siap
+    this.initDefaultRoute();
+
+    this.setMode('route'); // Default mode 'route' agar klik peta langsung membuat rute
     this.bindEvents();
     this.renderLandmarkBadges();
+    this.renderRouteList();
     this.updateStats();
     
     // Pulihkan rute & landmark terakhir yang disimpan di localStorage
     this.loadSavedRoute();
+  }
+
+  // Helper untuk memastikan layer polyline sebuah rute terpasang dengan benar di Leaflet
+  ensureRoutePolylineLayer(route) {
+    if (!route) return;
+    if (!route.polyline) {
+      route.polyline = this.createRoutePolyline(route);
+    }
+    if (route.visible && this.map && !this.map.hasLayer(route.polyline)) {
+      route.polyline.addTo(this.map);
+    }
+  }
+
+  // --- Getter / Setter untuk Rute Aktif Saat Ini ---
+  getActiveRoute() {
+    let r = this.routes.find(route => route.id === this.activeRouteId);
+    if (!r && this.routes.length > 0) {
+      this.activeRouteId = this.routes[0].id;
+      r = this.routes[0];
+    }
+    return r;
+  }
+
+  get waypoints() {
+    const r = this.getActiveRoute();
+    return r ? r.waypoints : [];
+  }
+  set waypoints(val) {
+    const r = this.getActiveRoute();
+    if (r) r.waypoints = val;
+  }
+
+  get routePolyline() {
+    const r = this.getActiveRoute();
+    return r ? r.polyline : null;
+  }
+
+  get waypointMarkers() {
+    const r = this.getActiveRoute();
+    return r ? r.waypointMarkers : [];
+  }
+  set waypointMarkers(val) {
+    const r = this.getActiveRoute();
+    if (r) r.waypointMarkers = val;
+  }
+
+  get undoStack() {
+    const r = this.getActiveRoute();
+    return r ? r.undoStack : [];
+  }
+  set undoStack(val) {
+    const r = this.getActiveRoute();
+    if (r) r.undoStack = val;
+  }
+
+  get redoStack() {
+    const r = this.getActiveRoute();
+    return r ? r.redoStack : [];
+  }
+  set redoStack(val) {
+    const r = this.getActiveRoute();
+    if (r) r.redoStack = val;
+  }
+
+  get paceSeconds() {
+    const r = this.getActiveRoute();
+    return r ? r.paceSeconds : 360;
+  }
+  set paceSeconds(val) {
+    const r = this.getActiveRoute();
+    if (r) r.paceSeconds = val;
+  }
+
+  get startTime() {
+    const r = this.getActiveRoute();
+    return r ? r.startTime : '06:00';
+  }
+  set startTime(val) {
+    const r = this.getActiveRoute();
+    if (r) r.startTime = val;
+  }
+
+  get snapToRoad() {
+    const r = this.getActiveRoute();
+    return r && r.snapToRoad !== undefined ? r.snapToRoad : true;
+  }
+  set snapToRoad(val) {
+    const r = this.getActiveRoute();
+    if (r) r.snapToRoad = val;
   }
 
   initDOMElements() {
@@ -79,10 +194,58 @@ class StrideMapApp {
     this.modeMoveBtn = document.getElementById('modeMoveBtn');
     this.modeRouteBtn = document.getElementById('modeRouteBtn');
     this.modeLandmarkBtn = document.getElementById('modeLandmarkBtn');
+    this.modePaceCheckBtn = document.getElementById('modePaceCheckBtn');
+    this.modeLiveBtn = document.getElementById('modeLiveBtn');
+    this.modeScrollLeftBtn = document.getElementById('modeScrollLeftBtn');
+    this.modeScrollRightBtn = document.getElementById('modeScrollRightBtn');
+    this.modeScrollContainer = document.getElementById('modeScrollContainer');
+    this.modeSelectorGroup = document.getElementById('modeSelectorGroup');
+
+    this.gpsHelpModal = document.getElementById('gpsHelpModal');
+    this.closeGpsHelpModalBtn = document.getElementById('closeGpsHelpModalBtn');
+    this.closeGpsHelpModalBtn2 = document.getElementById('closeGpsHelpModalBtn2');
+    this.gpsUseIpBtn = document.getElementById('gpsUseIpBtn');
+    this.gpsOriginUrlCode = document.getElementById('gpsOriginUrlCode');
+
     this.moveHintOptions = document.getElementById('moveHintOptions');
     this.routingOptions = document.getElementById('routingOptions');
     this.landmarkOptions = document.getElementById('landmarkOptions');
+    this.paceCheckOptions = document.getElementById('paceCheckOptions');
+    this.liveSimulationOptions = document.getElementById('liveSimulationOptions');
+
+    this.liveSimulationStatus = document.getElementById('liveSimulationStatus');
+    this.liveSyncCurrentTimeBtn = document.getElementById('liveSyncCurrentTimeBtn');
+    this.liveClockDisplay = document.getElementById('liveClockDisplay');
+    this.liveClockSub = document.getElementById('liveClockSub');
+    this.liveTimeSlider = document.getElementById('liveTimeSlider');
+    this.liveSliderMinLabel = document.getElementById('liveSliderMinLabel');
+    this.liveSliderCurrentLabel = document.getElementById('liveSliderCurrentLabel');
+    this.liveSliderMaxLabel = document.getElementById('liveSliderMaxLabel');
+    this.liveStepBackBtn = document.getElementById('liveStepBackBtn');
+    this.livePlayPauseBtn = document.getElementById('livePlayPauseBtn');
+    this.liveStepForwardBtn = document.getElementById('liveStepForwardBtn');
+    this.liveSpeedSelect = document.getElementById('liveSpeedSelect');
+    this.livePaceChips = document.getElementById('livePaceChips');
+    this.liveRunnerStatusList = document.getElementById('liveRunnerStatusList');
+
+    this.paceCheckEmpty = document.getElementById('paceCheckEmpty');
+    this.paceCheckResultCard = document.getElementById('paceCheckResultCard');
+    this.inspectTargetTimeInput = document.getElementById('inspectTargetTimeInput');
+    this.saveAsLandmarkBtn = document.getElementById('saveAsLandmarkBtn');
+    this.clearInspectBtn = document.getElementById('clearInspectBtn');
+
+    this.addNewRouteBtn = document.getElementById('addNewRouteBtn');
+    this.routeList = document.getElementById('routeList');
+    this.activeRouteStatsBadge = document.getElementById('activeRouteStatsBadge');
+
     this.snapRoadToggle = document.getElementById('snapRoadToggle');
+    this.routeModeAutoBtn = document.getElementById('routeModeAutoBtn');
+    this.routeModeManualBtn = document.getElementById('routeModeManualBtn');
+    this.routingModeBadge = document.getElementById('routingModeBadge');
+    this.routingModeHintText = document.getElementById('routingModeHintText');
+    this.floatingRoutingToggle = document.getElementById('floatingRoutingToggle');
+    this.floatingAutoRouteBtn = document.getElementById('floatingAutoRouteBtn');
+    this.floatingManualRouteBtn = document.getElementById('floatingManualRouteBtn');
     this.landmarkBadgeGroup = document.getElementById('landmarkBadgeGroup');
     
     this.distKmEl = document.getElementById('distKm');
@@ -140,48 +303,15 @@ class StrideMapApp {
 
     L.control.zoom({ position: 'bottomright' }).addTo(this.map);
 
-    // Tile layer jalan yang 100% gratis, tanpa API Key, dan tanpa watermark
-    this.baseLayers.osm = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
+    // Tile layer jalan OpenStreetMap
+    this.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png', {
       maxZoom: 20,
       attribution: '&copy; OpenStreetMap France contributors'
-    });
-
-    this.baseLayers.satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 18,
-      attribution: 'Tiles &copy; Esri'
-    });
-
-    this.baseLayers.topo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 18,
-      attribution: 'Tiles &copy; Esri World Topo'
-    });
-
-    this.activeTileLayer = this.baseLayers.osm;
-    this.activeTileLayer.addTo(this.map);
-
-    this.routePolyline = L.polyline([], {
-      color: '#fc4c02',
-      weight: 6,
-      opacity: 0.85,
-      lineCap: 'round',
-      lineJoin: 'round'
     }).addTo(this.map);
 
-    // Tooltip jarak rute saat kursor di-hover ke garis jalur
-    this.routePolyline.bindTooltip('', {
-      sticky: true,
-      direction: 'top',
-      offset: [0, -10],
-      className: 'route-dist-tooltip'
-    });
-
-    this.routePolyline.on('mousemove', (e) => {
-      const distKm = this.getDistanceFromStartAlongPolyline(e.latlng);
-      if (distKm !== null) {
-        this.routePolyline.setTooltipContent(
-          `<span class="dist-val">${distKm.toFixed(2)} km</span> dari Start`
-        );
-      }
+    // Inisialisasi dan pasang polyline untuk seluruh rute yang ada
+    this.routes.forEach(route => {
+      this.ensureRoutePolylineLayer(route);
     });
   }
 
@@ -282,26 +412,89 @@ class StrideMapApp {
       });
     }
 
-    document.querySelectorAll('.layer-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const layerKey = e.currentTarget.getAttribute('data-layer');
-        document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
-        e.currentTarget.classList.add('active');
-        
-        if (this.baseLayers[layerKey]) {
-          this.map.removeLayer(this.activeTileLayer);
-          this.activeTileLayer = this.baseLayers[layerKey];
-          this.activeTileLayer.addTo(this.map);
-        }
-      });
-    });
+
+    this.initModeScrollNavigation();
 
     this.modeMoveBtn.addEventListener('click', () => this.setMode('move'));
     this.modeRouteBtn.addEventListener('click', () => this.setMode('route'));
     this.modeLandmarkBtn.addEventListener('click', () => this.setMode('landmark'));
+    this.modePaceCheckBtn.addEventListener('click', () => this.setMode('pacecheck'));
+    if (this.modeLiveBtn) {
+      this.modeLiveBtn.addEventListener('click', () => this.setMode('live'));
+    }
 
-    this.snapRoadToggle.addEventListener('change', (e) => {
-      this.snapToRoad = e.target.checked;
+    if (this.livePlayPauseBtn) {
+      this.livePlayPauseBtn.addEventListener('click', () => this.toggleLivePlayPause());
+    }
+    if (this.liveStepBackBtn) {
+      this.liveStepBackBtn.addEventListener('click', () => this.stepLiveSimulation(-300));
+    }
+    if (this.liveStepForwardBtn) {
+      this.liveStepForwardBtn.addEventListener('click', () => this.stepLiveSimulation(300));
+    }
+    if (this.liveTimeSlider) {
+      this.liveTimeSlider.addEventListener('input', (e) => {
+        this.liveCurrentSeconds = parseInt(e.target.value);
+        this.updateLiveSimulation();
+      });
+    }
+    if (this.liveSpeedSelect) {
+      this.liveSpeedSelect.addEventListener('change', (e) => {
+        this.liveSpeedMultiplier = parseInt(e.target.value) || 15;
+      });
+    }
+    if (this.liveSyncCurrentTimeBtn) {
+      this.liveSyncCurrentTimeBtn.addEventListener('click', () => this.syncLiveToCurrentLocalTime());
+    }
+
+    if (this.inspectTargetTimeInput) {
+      this.inspectTargetTimeInput.addEventListener('input', () => this.recalculatePaceInspection());
+      this.inspectTargetTimeInput.addEventListener('change', () => this.recalculatePaceInspection());
+    }
+    if (this.saveAsLandmarkBtn) {
+      this.saveAsLandmarkBtn.addEventListener('click', () => this.saveInspectedPointAsLandmark());
+    }
+    if (this.clearInspectBtn) {
+      this.clearInspectBtn.addEventListener('click', () => this.clearPaceInspection());
+    }
+
+    if (this.addNewRouteBtn) {
+      this.addNewRouteBtn.addEventListener('click', () => this.addNewCustomRoute());
+    }
+
+    document.querySelectorAll('#routePresetChips .preset-chip-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const presetKey = e.currentTarget.getAttribute('data-preset');
+        this.addOrSwitchPresetRoute(presetKey);
+      });
+    });
+
+    if (this.routeModeAutoBtn) {
+      this.routeModeAutoBtn.addEventListener('click', () => this.setRoutingSnapMode(true));
+    }
+    if (this.routeModeManualBtn) {
+      this.routeModeManualBtn.addEventListener('click', () => this.setRoutingSnapMode(false));
+    }
+    if (this.floatingAutoRouteBtn) {
+      this.floatingAutoRouteBtn.addEventListener('click', () => this.setRoutingSnapMode(true));
+    }
+    if (this.floatingManualRouteBtn) {
+      this.floatingManualRouteBtn.addEventListener('click', () => this.setRoutingSnapMode(false));
+    }
+
+    if (this.snapRoadToggle) {
+      this.snapRoadToggle.addEventListener('change', (e) => {
+        this.setRoutingSnapMode(e.target.checked);
+      });
+    }
+
+    // Shortcut keyboard 'M' untuk switch cepat antara Auto dan Manual saat membuat rute
+    document.addEventListener('keydown', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (this.currentMode === 'route' && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        this.setRoutingSnapMode(!this.snapToRoad);
+      }
     });
 
     let searchTimeout = null;
@@ -342,11 +535,12 @@ class StrideMapApp {
     });
 
     if (this.startTimeInput) {
-      this.startTimeInput.addEventListener('change', (e) => {
-        this.startTime = e.target.value || '06:00';
-        this.updateLandmarkMarkersDisplay();
-        this.saveToStorage();
-      });
+      const onStartTimeChange = (e) => {
+        const val = e.target.value || '06:00';
+        this.updateRouteStartTime(this.activeRouteId, val);
+      };
+      this.startTimeInput.addEventListener('input', onStartTimeChange);
+      this.startTimeInput.addEventListener('change', onStartTimeChange);
     }
 
     const onPaceNumChange = () => {
@@ -426,6 +620,21 @@ class StrideMapApp {
     this.closeModalBtn.addEventListener('click', () => this.closeLandmarkModal());
     this.cancelLandmarkBtn.addEventListener('click', () => this.closeLandmarkModal());
     this.saveLandmarkBtn.addEventListener('click', () => this.savePendingLandmark());
+
+    if (this.closeGpsHelpModalBtn) {
+      this.closeGpsHelpModalBtn.addEventListener('click', () => this.closeGpsHelpModal());
+    }
+    if (this.closeGpsHelpModalBtn2) {
+      this.closeGpsHelpModalBtn2.addEventListener('click', () => this.closeGpsHelpModal());
+    }
+    if (this.gpsHelpModal) {
+      this.gpsHelpModal.addEventListener('click', (e) => {
+        if (e.target === this.gpsHelpModal) this.closeGpsHelpModal();
+      });
+    }
+    if (this.gpsUseIpBtn) {
+      this.gpsUseIpBtn.addEventListener('click', () => this.fetchIpLocation());
+    }
   }
 
   toggleFullScreen() {
@@ -465,16 +674,83 @@ class StrideMapApp {
     this.modeMoveBtn.classList.toggle('active', mode === 'move');
     this.modeRouteBtn.classList.toggle('active', mode === 'route');
     this.modeLandmarkBtn.classList.toggle('active', mode === 'landmark');
+    this.modePaceCheckBtn.classList.toggle('active', mode === 'pacecheck');
+    if (this.modeLiveBtn) this.modeLiveBtn.classList.toggle('active', mode === 'live');
 
     this.moveHintOptions.style.display = mode === 'move' ? 'block' : 'none';
     this.routingOptions.style.display = mode === 'route' ? 'block' : 'none';
     this.landmarkOptions.style.display = mode === 'landmark' ? 'block' : 'none';
+    this.paceCheckOptions.style.display = mode === 'pacecheck' ? 'block' : 'none';
+    if (this.liveSimulationOptions) this.liveSimulationOptions.style.display = mode === 'live' ? 'flex' : 'none';
+
+    // Pastikan tombol mode aktif terlihat di container scrollable (horizontal saja)
+    let activeBtn = null;
+    if (mode === 'move') activeBtn = this.modeMoveBtn;
+    else if (mode === 'route') activeBtn = this.modeRouteBtn;
+    else if (mode === 'landmark') activeBtn = this.modeLandmarkBtn;
+    else if (mode === 'pacecheck') activeBtn = this.modePaceCheckBtn;
+    else if (mode === 'live') activeBtn = this.modeLiveBtn;
+    if (activeBtn && this.modeSelectorGroup) {
+      const targetScroll = activeBtn.offsetLeft - 12;
+      this.modeSelectorGroup.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+    }
 
     // Sesuaikan kursor pada container peta
     const mapContainer = document.getElementById('map');
     if (mapContainer) {
-      mapContainer.style.cursor = mode === 'move' ? 'grab' : 'crosshair';
+      mapContainer.style.cursor = (mode === 'move' || mode === 'live') ? 'grab' : 'crosshair';
     }
+
+    if (mode === 'pacecheck' && this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+
+    if (mode === 'live') {
+      this.initLiveSimulationTimeWindow();
+      this.renderLivePaceChips();
+      this.updateLiveSimulation();
+    } else {
+      this.pauseLiveSimulation();
+      this.clearLiveRunnerMarkers();
+    }
+
+    // Tampilkan / sembunyikan toggle cepat routing di atas peta (hanya muncul saat mode 'route')
+    if (this.floatingRoutingToggle) {
+      this.floatingRoutingToggle.style.display = mode === 'route' ? 'flex' : 'none';
+      if (mode === 'route') {
+        this.setRoutingSnapMode(this.snapToRoad);
+      }
+    }
+
+    // Perbarui penampakan marker waypoint rute: HANYA tampil di mode 'route'
+    this.renderWaypointMarkers();
+  }
+
+  setRoutingSnapMode(isAuto) {
+    this.snapToRoad = isAuto;
+    if (this.snapRoadToggle) this.snapRoadToggle.checked = isAuto;
+
+    if (this.routeModeAutoBtn) this.routeModeAutoBtn.classList.toggle('active', isAuto);
+    if (this.routeModeManualBtn) this.routeModeManualBtn.classList.toggle('active', !isAuto);
+
+    if (this.floatingAutoRouteBtn) this.floatingAutoRouteBtn.classList.toggle('active', isAuto);
+    if (this.floatingManualRouteBtn) this.floatingManualRouteBtn.classList.toggle('active', !isAuto);
+
+    if (this.routingModeBadge) {
+      this.routingModeBadge.className = `routing-badge ${isAuto ? 'auto' : 'manual'}`;
+      this.routingModeBadge.innerHTML = isAuto
+        ? '<i class="fa-solid fa-magnet"></i> Auto Jalan'
+        : '<i class="fa-solid fa-pen-ruler"></i> Manual Bebas';
+    }
+
+    if (this.routingModeHintText) {
+      this.routingModeHintText.innerHTML = isAuto
+        ? '<i class="fa-solid fa-circle-check text-sky"></i> <strong>Mode Auto:</strong> Titik baru otomatis mengikuti lekukan jalan.'
+        : '<i class="fa-solid fa-crosshairs text-orange"></i> <strong>Mode Manual:</strong> Titik baru ditarik garis lurus bebas (cocok untuk memotong taman, gang, atau lawan arah).';
+    }
+
+    const r = this.getActiveRoute();
+    if (r) r.snapToRoad = isAuto;
   }
 
   renderLandmarkBadges() {
@@ -550,40 +826,51 @@ class StrideMapApp {
   }
 
   handleMapClick(e) {
-    if (this.currentMode === 'move') {
-      // Pada mode Move/Geser, klik tidak akan menambah titik atau landmark
+    if (this.currentMode === 'move' || this.currentMode === 'live') {
+      // Pada mode Move/Geser dan Live, klik tidak akan menambah titik atau landmark
       return;
     }
 
     const latlng = e.latlng;
+    if (this.currentMode === 'pacecheck') {
+      this.handlePaceCheckClick(latlng);
+      return;
+    }
+
     if (this.currentMode === 'landmark') {
       this.openLandmarkModal(latlng);
     } else {
-      // Jika berada dekat titik start dan ada indikasi rekomendasi gabung loop
-      if (this.isNearStart && this.waypoints.length >= 2) {
+      // Jika berada dekat titik start rute aktif dan ada indikasi rekomendasi gabung loop
+      if (this.isNearStart && this.waypoints && this.waypoints.length >= 2 && this.waypoints[0]) {
         const startPoint = this.waypoints[0];
+        this.clearLoopSnapRecommendation();
         this.addWaypoint(L.latLng(startPoint.lat, startPoint.lng));
       } else {
+        this.clearLoopSnapRecommendation();
         this.addWaypoint(latlng);
       }
     }
   }
 
   handleMapMouseMove(e) {
-    if (this.currentMode !== 'route' || this.waypoints.length < 2) {
+    if (this.currentMode !== 'route' || !this.waypoints || this.waypoints.length < 2) {
       this.clearLoopSnapRecommendation();
       return;
     }
 
     const mouseLatLng = e.latlng;
     const startPoint = this.waypoints[0];
+    if (!startPoint || startPoint.lat === undefined) {
+      this.clearLoopSnapRecommendation();
+      return;
+    }
     
     // Konversi koordinat ke pixel pada layar saat ini untuk deteksi hover presisi
     const mousePoint = this.map.latLngToContainerPoint(mouseLatLng);
     const startPixel = this.map.latLngToContainerPoint(startPoint);
     const pixelDistance = mousePoint.distanceTo(startPixel);
 
-    // Hover terdeteksi jika kursor berada dalam radius 35 pixel di sekitar icon start
+    // Hover terdeteksi jika kursor berada dalam radius 35 pixel di sekitar icon start rute aktif
     // atau dalam jarak geografis meter dekat
     const distanceMeters = mouseLatLng.distanceTo(startPoint);
     const isHovering = pixelDistance <= 35 || distanceMeters <= 20;
@@ -596,6 +883,10 @@ class StrideMapApp {
   }
 
   showLoopSnapRecommendation(startPoint) {
+    if (!startPoint || !this.waypoints || this.waypoints.length < 2 || startPoint.lat === undefined) {
+      this.clearLoopSnapRecommendation();
+      return;
+    }
     this.isNearStart = true;
     if (!this.loopSnapMarker) {
       const snapIcon = L.divIcon({
@@ -637,7 +928,7 @@ class StrideMapApp {
     }
   }
 
-  // Sinkronisasi otomatis Landmark Start, Finish, atau Start & Finish
+  // Sinkronisasi otomatis Landmark Start, Finish, atau Start & Finish untuk semua rute terlihat
   syncAutoStartFinishLandmarks() {
     // 1. Hapus auto landmark yang sebelumnya dibuat
     this.landmarks = this.landmarks.filter(l => {
@@ -648,68 +939,66 @@ class StrideMapApp {
       return true;
     });
 
-    if (this.waypoints.length === 0) {
-      this.renderLandmarkList();
-      this.updateStats();
-      return;
-    }
+    this.routes.forEach(route => {
+      if (!route.visible || !route.waypoints || route.waypoints.length === 0) return;
 
-    const startPt = this.waypoints[0];
+      const startPt = route.waypoints[0];
+      const routePrefix = this.routes.length > 1 ? ` (${route.name})` : '';
 
-    // Jika hanya 1 titik rute
-    if (this.waypoints.length === 1) {
-      this.createInternalLandmark({
-        lat: startPt.lat,
-        lng: startPt.lng,
-        type: 'start',
-        name: 'Start Line',
-        desc: 'Titik awal jalur lari',
-        isAuto: true
-      });
-      this.renderLandmarkList();
-      this.updateStats();
-      return;
-    }
+      if (route.waypoints.length === 1) {
+        this.createInternalLandmark({
+          lat: startPt.lat,
+          lng: startPt.lng,
+          type: 'start',
+          name: `Start${routePrefix}`,
+          desc: `Titik awal ${route.name}`,
+          isAuto: true,
+          routeId: route.id
+        });
+        return;
+      }
 
-    const endPt = this.waypoints[this.waypoints.length - 1];
-    const isSamePoint = startPt.distanceTo(endPt) < 15; // Jarak < 15 meter dianggap titik sama / Loop
+      const endPt = route.waypoints[route.waypoints.length - 1];
+      const isSamePoint = startPt.distanceTo(endPt) < 15;
 
-    if (isSamePoint) {
-      // Titik Start dan Finish menyatu
-      this.createInternalLandmark({
-        lat: startPt.lat,
-        lng: startPt.lng,
-        type: 'start_finish',
-        name: 'Start & Finish',
-        desc: 'Titik Start dan Finish jalur lari (Loop/Melingkar)',
-        isAuto: true
-      });
-    } else {
-      // Titik Start & Finish terpisah
-      this.createInternalLandmark({
-        lat: startPt.lat,
-        lng: startPt.lng,
-        type: 'start',
-        name: 'Start Line',
-        desc: 'Titik awal jalur lari',
-        isAuto: true
-      });
+      if (isSamePoint) {
+        this.createInternalLandmark({
+          lat: startPt.lat,
+          lng: startPt.lng,
+          type: 'start_finish',
+          name: `Start & Finish${routePrefix}`,
+          desc: `Loop ${route.name}`,
+          isAuto: true,
+          routeId: route.id
+        });
+      } else {
+        this.createInternalLandmark({
+          lat: startPt.lat,
+          lng: startPt.lng,
+          type: 'start',
+          name: `Start${routePrefix}`,
+          desc: `Titik awal ${route.name}`,
+          isAuto: true,
+          routeId: route.id
+        });
 
-      this.createInternalLandmark({
-        lat: endPt.lat,
-        lng: endPt.lng,
-        type: 'finish',
-        name: 'Finish Line',
-        desc: 'Titik finish jalur lari',
-        isAuto: true
-      });
-    }
+        this.createInternalLandmark({
+          lat: endPt.lat,
+          lng: endPt.lng,
+          type: 'finish',
+          name: `Finish${routePrefix}`,
+          desc: `Titik finish ${route.name}`,
+          isAuto: true,
+          routeId: route.id
+        });
+      }
+    });
 
     this.renderLandmarkList();
     this.updateStats();
   }
 
-  createInternalLandmark({ lat, lng, type, name, desc, isAuto = false, showTimeEstimate = true }) {
+  createInternalLandmark({ lat, lng, type, name, desc, isAuto = false, showTimeEstimate = true, routeId = null }) {
     const config = LANDMARK_TYPES[type] || LANDMARK_TYPES.custom;
     const isKm = type === 'km';
     const labelText = name || config.label;
@@ -756,19 +1045,28 @@ class StrideMapApp {
     `;
     marker.bindPopup(popupContent);
 
-    // Jika landmark ini adalah auto Start, tambahkan trigger hover untuk memunculkan rekomendasi loop
-    if (isAuto && type === 'start') {
-      marker.on('mouseover', () => {
-        if (this.currentMode === 'route' && this.waypoints.length >= 2) {
-          this.showLoopSnapRecommendation(L.latLng(lat, lng));
-        }
-      });
+    // Klik pada marker: jika sedang mode 'route', langsung tambahkan titik koordinat ini sebagai waypoint!
+    marker.on('click', (e) => {
+      if (this.currentMode === 'route') {
+        L.DomEvent.stopPropagation(e);
+        this.clearLoopSnapRecommendation();
+        this.addWaypoint(L.latLng(lat, lng));
+        return;
+      }
+    });
 
-      marker.on('click', (e) => {
-        if (this.currentMode === 'route' && this.waypoints.length >= 2) {
-          L.DomEvent.stopPropagation(e);
-          this.clearLoopSnapRecommendation();
-          this.addWaypoint(L.latLng(lat, lng));
+    // Hover untuk loop snap: HANYA jika landmark ini adalah start dari rute yang sedang aktif dan waypoints >= 2
+    if (isAuto && (type === 'start' || type === 'start_finish')) {
+      marker.on('mouseover', () => {
+        const activeRoute = this.getActiveRoute();
+        if (
+          this.currentMode === 'route' &&
+          activeRoute &&
+          activeRoute.id === routeId &&
+          this.waypoints &&
+          this.waypoints.length >= 2
+        ) {
+          this.showLoopSnapRecommendation(L.latLng(lat, lng));
         }
       });
     }
@@ -783,13 +1081,14 @@ class StrideMapApp {
     }
 
     const landmarkObj = {
-      id: isAuto ? `auto_${type}` : Date.now().toString() + Math.random().toString(36).substr(2, 4),
+      id: isAuto ? `auto_${type}_${routeId || ''}` : Date.now().toString() + Math.random().toString(36).substr(2, 4),
       lat: lat,
       lng: lng,
       type: type,
       name: name,
       desc: desc,
       isAuto: isAuto,
+      routeId: routeId,
       showTimeEstimate: showTimeEstimate,
       marker: marker
     };
@@ -801,7 +1100,12 @@ class StrideMapApp {
   // --- Snapshot State untuk Undo / Redo ---
   takeSnapshot() {
     return {
-      waypoints: this.waypoints.map(w => L.latLng(w.lat, w.lng)),
+      waypoints: this.waypoints.map(w => {
+        const pt = L.latLng(w.lat, w.lng);
+        pt.mode = w.mode || 'auto';
+        pt.segmentCoords = w.segmentCoords ? JSON.parse(JSON.stringify(w.segmentCoords)) : null;
+        return pt;
+      }),
       landmarks: this.landmarks.map(l => ({
         id: l.id,
         lat: l.lat,
@@ -819,8 +1123,23 @@ class StrideMapApp {
   saveToStorage() {
     try {
       const dataToSave = {
-        waypoints: this.waypoints.map(w => ({ lat: w.lat, lng: w.lng })),
-        routePolyline: this.routePolyline ? this.routePolyline.getLatLngs().map(p => ({ lat: p.lat, lng: p.lng })) : [],
+        routes: this.routes.map(r => ({
+          id: r.id,
+          name: r.name,
+          color: r.color,
+          visible: r.visible,
+          waypoints: r.waypoints.map(w => ({
+            lat: w.lat,
+            lng: w.lng,
+            mode: w.mode || 'auto',
+            segmentCoords: w.segmentCoords || null
+          })),
+          routePolyline: r.polyline ? r.polyline.getLatLngs().map(p => ({ lat: p.lat, lng: p.lng })) : [],
+          paceSeconds: r.paceSeconds || 360,
+          startTime: r.startTime || '06:00',
+          snapToRoad: r.snapToRoad !== undefined ? r.snapToRoad : true
+        })),
+        activeRouteId: this.activeRouteId,
         landmarks: this.landmarks.map(l => ({
           id: l.id,
           lat: l.lat,
@@ -831,10 +1150,7 @@ class StrideMapApp {
           isAuto: l.isAuto || false,
           showTimeEstimate: l.showTimeEstimate !== undefined ? l.showTimeEstimate : true
         })),
-        routeTitle: this.routeTitleInput ? this.routeTitleInput.value : 'My Running Route',
-        paceSeconds: this.paceSeconds || 360,
-        startTime: this.startTime || '06:00',
-        snapToRoad: this.snapToRoad !== undefined ? this.snapToRoad : true
+        routeTitle: this.routeTitleInput ? this.routeTitleInput.value : 'My Running Route'
       };
       localStorage.setItem('stridemap_active_route', JSON.stringify(dataToSave));
     } catch (e) {
@@ -848,27 +1164,10 @@ class StrideMapApp {
       if (!savedRaw) return;
 
       const data = JSON.parse(savedRaw);
-      if (!data || (!data.waypoints?.length && !data.landmarks?.length)) return;
+      if (!data) return;
 
       if (data.routeTitle && this.routeTitleInput) {
         this.routeTitleInput.value = data.routeTitle;
-      }
-
-      if (data.paceSeconds) {
-        this.paceSeconds = data.paceSeconds;
-        if (this.paceRange) this.paceRange.value = data.paceSeconds;
-        this.syncPaceNumberInputs();
-        this.updatePaceDisplay();
-      }
-
-      if (data.startTime) {
-        this.startTime = data.startTime;
-        if (this.startTimeInput) this.startTimeInput.value = data.startTime;
-      }
-
-      if (data.snapToRoad !== undefined) {
-        this.snapToRoad = data.snapToRoad;
-        if (this.snapRoadToggle) this.snapRoadToggle.checked = data.snapToRoad;
       }
 
       // 1. Bersihkan landmarks yang mungkin sudah ada di map
@@ -894,24 +1193,69 @@ class StrideMapApp {
         });
       }
 
-      // 2. Muat waypoints dan polyline
-      if (data.waypoints && Array.isArray(data.waypoints) && data.waypoints.length > 0) {
-        this.waypoints = data.waypoints.map(w => L.latLng(w.lat, w.lng));
-        
-        if (data.routePolyline && Array.isArray(data.routePolyline) && data.routePolyline.length > 0) {
-          const polyCoords = data.routePolyline.map(p => L.latLng(p.lat, p.lng));
-          this.routePolyline.setLatLngs(polyCoords);
-          this.renderWaypointMarkers();
-          this.syncAutoStartFinishLandmarks();
-          this.updateLandmarkMarkersDisplay();
-          this.updateStats();
-          this.updateControlsState();
-        } else {
-          await this.recalculateRoute(false);
-        }
+      // 2. Muat routes jika format multi-rute
+      if (data.routes && Array.isArray(data.routes) && data.routes.length > 0) {
+        // Hapus rute bawaan sebelumnya
+        this.routes.forEach(r => {
+          if (r.polyline) this.map.removeLayer(r.polyline);
+          r.waypointMarkers.forEach(m => this.map.removeLayer(m));
+        });
+        this.routes = [];
 
-        // Auto zoom ke rute yang dimuat
+        data.routes.forEach(savedR => {
+          const rObj = this.createRoute({
+            id: savedR.id,
+            name: savedR.name,
+            color: savedR.color,
+            visible: savedR.visible !== undefined ? savedR.visible : true,
+            paceSeconds: savedR.paceSeconds || 360,
+            startTime: savedR.startTime || '06:00',
+            snapToRoad: savedR.snapToRoad !== undefined ? savedR.snapToRoad : true,
+            waypoints: savedR.waypoints ? savedR.waypoints.map(w => {
+              const pt = L.latLng(w.lat, w.lng);
+              pt.mode = w.mode || 'auto';
+              pt.segmentCoords = w.segmentCoords || null;
+              return pt;
+            }) : [],
+            polylineCoords: savedR.routePolyline ? savedR.routePolyline.map(p => L.latLng(p.lat, p.lng)) : []
+          });
+          this.routes.push(rObj);
+          this.ensureRoutePolylineLayer(rObj);
+
+          if (rObj.waypoints.length >= 2 && (!savedR.routePolyline || savedR.routePolyline.length < 2)) {
+            rObj.polyline.setLatLngs(rObj.waypoints);
+          }
+        });
+
+        this.activeRouteId = data.activeRouteId || this.routes[0].id;
+        this.setActiveRoute(this.activeRouteId);
+        this.syncAutoStartFinishLandmarks();
+        this.renderRouteList();
         setTimeout(() => this.fitRouteBounds(), 400);
+      } else if (data.waypoints && Array.isArray(data.waypoints) && data.waypoints.length > 0) {
+        // Format lama (single route migration)
+        const defRoute = this.routes[0];
+        if (defRoute) {
+          defRoute.waypoints = data.waypoints.map(w => {
+            const pt = L.latLng(w.lat, w.lng);
+            pt.mode = w.mode || 'auto';
+            pt.segmentCoords = w.segmentCoords || null;
+            return pt;
+          });
+          if (data.paceSeconds) defRoute.paceSeconds = data.paceSeconds;
+          if (data.startTime) defRoute.startTime = data.startTime;
+          if (data.snapToRoad !== undefined) defRoute.snapToRoad = data.snapToRoad;
+          this.ensureRoutePolylineLayer(defRoute);
+          if (data.routePolyline && Array.isArray(data.routePolyline) && data.routePolyline.length >= 2) {
+            defRoute.polyline.setLatLngs(data.routePolyline.map(p => L.latLng(p.lat, p.lng)));
+          } else {
+            await this.recalculateRoute(false);
+          }
+          this.setActiveRoute(defRoute.id);
+          this.syncAutoStartFinishLandmarks();
+          this.renderRouteList();
+          setTimeout(() => this.fitRouteBounds(), 400);
+        }
       } else {
         this.renderLandmarkList();
         this.updateStats();
@@ -931,9 +1275,16 @@ class StrideMapApp {
   }
 
   async applySnapshot(snapshot) {
-    // 1. Restore Waypoints
-    this.waypoints = snapshot.waypoints.map(w => L.latLng(w.lat, w.lng));
-    await this.recalculateRoute(false); // tidak save history saat restore
+    // 1. Restore Waypoints dengan preserve segmen
+    this.waypoints = snapshot.waypoints.map(w => {
+      const pt = L.latLng(w.lat, w.lng);
+      pt.mode = w.mode || 'auto';
+      pt.segmentCoords = w.segmentCoords ? JSON.parse(JSON.stringify(w.segmentCoords)) : null;
+      return pt;
+    });
+    this.updatePolylineFromSegments();
+    this.renderWaypointMarkers();
+    this.syncAutoStartFinishLandmarks();
 
     // 2. Restore Landmarks
     this.landmarks.forEach(l => {
@@ -977,11 +1328,102 @@ class StrideMapApp {
     await this.applySnapshot(nextState);
   }
 
-  // --- Routing Logic ---
-  async addWaypoint(latlng) {
+  // --- Routing Logic (Hybrid: Auto Road + Manual Straight Line) ---
+  async addWaypoint(latlng, forcedMode = null) {
     this.saveStateToHistory();
-    this.waypoints.push(latlng);
-    await this.recalculateRoute();
+    const pt = L.latLng(latlng.lat, latlng.lng);
+    const mode = forcedMode || (this.snapToRoad ? 'auto' : 'manual');
+    pt.mode = mode;
+
+    const r = this.getActiveRoute();
+    if (!r) return;
+
+    if (this.waypoints.length === 0) {
+      pt.mode = 'start';
+      pt.segmentCoords = [];
+      this.waypoints.push(pt);
+      this.updatePolylineFromSegments();
+    } else {
+      const prevPt = this.waypoints[this.waypoints.length - 1];
+      if (mode === 'auto') {
+        this.showLoading(true, 'Menghubungkan via jalan (OSRM)...');
+        try {
+          const coords = await this.fetchSegmentRoute(prevPt, pt);
+          pt.segmentCoords = coords;
+        } catch (e) {
+          console.warn('OSRM segment fallback ke manual line:', e);
+          pt.segmentCoords = [[prevPt.lat, prevPt.lng], [pt.lat, pt.lng]];
+        } finally {
+          this.showLoading(false);
+        }
+      } else {
+        // Mode Manual: langsung garis lurus bebas tanpa OSRM
+        pt.segmentCoords = [[prevPt.lat, prevPt.lng], [pt.lat, pt.lng]];
+      }
+      this.waypoints.push(pt);
+      this.updatePolylineFromSegments();
+    }
+
+    this.renderWaypointMarkers();
+    this.syncAutoStartFinishLandmarks();
+    this.updateLandmarkMarkersDisplay();
+    this.updateStats();
+    this.updateControlsState();
+    this.saveToStorage();
+
+    if (this.paceInspectMarker && this.paceInspectState) {
+      const reProj = this.getProjectionOnRoute(this.paceInspectState.latlng);
+      if (reProj) {
+        this.paceInspectState.latlng = reProj.latlng;
+        this.paceInspectState.distanceKm = reProj.distanceKm;
+        this.paceInspectMarker.setLatLng(reProj.latlng);
+        this.recalculatePaceInspection();
+      }
+    }
+  }
+
+  async fetchSegmentRoute(fromPt, toPt) {
+    try {
+      const url = `https://router.project-osrm.org/route/v1/foot/${fromPt.lng},${fromPt.lat};${toPt.lng},${toPt.lat}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+        return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+      }
+    } catch (err) {
+      console.warn('Gagal fetch segmen OSRM, fallback ke garis lurus:', err);
+    }
+    return [[fromPt.lat, fromPt.lng], [toPt.lat, toPt.lng]];
+  }
+
+  updatePolylineFromSegments() {
+    const activeRoute = this.getActiveRoute();
+    if (!activeRoute) return;
+    this.ensureRoutePolylineLayer(activeRoute);
+
+    if (this.waypoints.length <= 1) {
+      if (this.routePolyline) this.routePolyline.setLatLngs([]);
+      return;
+    }
+
+    const fullCoords = [];
+    for (let i = 1; i < this.waypoints.length; i++) {
+      const pt = this.waypoints[i];
+      const prevPt = this.waypoints[i - 1];
+      const segCoords = (pt.segmentCoords && pt.segmentCoords.length > 0)
+        ? pt.segmentCoords
+        : [[prevPt.lat, prevPt.lng], [pt.lat, pt.lng]];
+
+      if (fullCoords.length > 0 && segCoords.length > 0) {
+        fullCoords.push(...segCoords.slice(1));
+      } else {
+        fullCoords.push(...segCoords);
+      }
+    }
+
+    if (this.routePolyline) {
+      this.routePolyline.setLatLngs(fullCoords);
+    }
   }
 
   async recalculateRoute(saveHistory = false) {
@@ -989,8 +1431,13 @@ class StrideMapApp {
       this.saveStateToHistory();
     }
 
-    if (this.waypoints.length === 0) {
-      this.routePolyline.setLatLngs([]);
+    const activeRoute = this.getActiveRoute();
+    if (!activeRoute) return;
+
+    this.ensureRoutePolylineLayer(activeRoute);
+
+    if (this.waypoints.length <= 1) {
+      if (this.routePolyline) this.routePolyline.setLatLngs([]);
       this.renderWaypointMarkers();
       this.syncAutoStartFinishLandmarks();
       this.updateStats();
@@ -998,40 +1445,27 @@ class StrideMapApp {
       return;
     }
 
-    if (this.waypoints.length === 1) {
-      this.routePolyline.setLatLngs([]);
-      this.renderWaypointMarkers();
-      this.syncAutoStartFinishLandmarks();
-      this.updateStats();
-      this.updateControlsState();
-      return;
-    }
-
-    if (!this.snapToRoad) {
-      this.routePolyline.setLatLngs(this.waypoints);
-      this.renderWaypointMarkers();
-      this.syncAutoStartFinishLandmarks();
-      this.updateStats();
-      this.updateControlsState();
-      return;
-    }
-
-    this.showLoading(true, 'Menghubungkan jalur lari...');
+    this.showLoading(true, 'Menghitung ulang rute...');
     try {
-      const coordsString = this.waypoints.map(pt => `${pt.lng},${pt.lat}`).join(';');
-      const url = `https://router.project-osrm.org/route/v1/foot/${coordsString}?overview=full&geometries=geojson`;
-      const res = await fetch(url);
-      const data = await res.json();
+      for (let i = 1; i < this.waypoints.length; i++) {
+        const pt = this.waypoints[i];
+        const prevPt = this.waypoints[i - 1];
+        const segMode = pt.mode || (this.snapToRoad ? 'auto' : 'manual');
+        pt.mode = segMode;
 
-      if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
-        const coords = data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
-        this.routePolyline.setLatLngs(coords);
-      } else {
-        this.routePolyline.setLatLngs(this.waypoints);
+        if (!pt.segmentCoords || pt.segmentCoords.length === 0) {
+          if (segMode === 'auto') {
+            try {
+              pt.segmentCoords = await this.fetchSegmentRoute(prevPt, pt);
+            } catch (e) {
+              pt.segmentCoords = [[prevPt.lat, prevPt.lng], [pt.lat, pt.lng]];
+            }
+          } else {
+            pt.segmentCoords = [[prevPt.lat, prevPt.lng], [pt.lat, pt.lng]];
+          }
+        }
       }
-    } catch (err) {
-      console.warn('Routing API fallback:', err);
-      this.routePolyline.setLatLngs(this.waypoints);
+      this.updatePolylineFromSegments();
     } finally {
       this.showLoading(false);
       this.renderWaypointMarkers();
@@ -1039,12 +1473,28 @@ class StrideMapApp {
       this.updateLandmarkMarkersDisplay();
       this.updateStats();
       this.updateControlsState();
+      this.saveToStorage();
+
+      if (this.paceInspectMarker && this.paceInspectState) {
+        const reProj = this.getProjectionOnRoute(this.paceInspectState.latlng);
+        if (reProj) {
+          this.paceInspectState.latlng = reProj.latlng;
+          this.paceInspectState.distanceKm = reProj.distanceKm;
+          this.paceInspectMarker.setLatLng(reProj.latlng);
+          this.recalculatePaceInspection();
+        }
+      }
     }
   }
 
   renderWaypointMarkers() {
     this.waypointMarkers.forEach(m => this.map.removeLayer(m));
     this.waypointMarkers = [];
+
+    // HANYA tampilkan titik waypoint jika sedang dalam mode 'route'!
+    if (this.currentMode !== 'route') {
+      return;
+    }
 
     this.waypoints.forEach((pt, idx) => {
       let markerClass = 'custom-route-marker';
@@ -1070,16 +1520,24 @@ class StrideMapApp {
         draggable: true
       }).addTo(this.map);
 
-      // Interaksi hover pada titik Start untuk memicu rekomendasi Loop
+      // Tooltip penjelas mode segmen
+      if (idx > 0) {
+        const segDesc = pt.mode === 'manual' ? 'Manual (Garis Lurus Bebas)' : 'Auto (Ikuti Jalan)';
+        marker.bindTooltip(`Titik ${idx + 1} • Sambungan: ${segDesc}`, { direction: 'top', offset: [0, -10] });
+      } else {
+        marker.bindTooltip('Titik Start (Awal Rute)', { direction: 'top', offset: [0, -10] });
+      }
+
+      // Interaksi klik & hover pada titik Start rute aktif untuk memicu rekomendasi Loop
       if (idx === 0) {
         marker.on('mouseover', () => {
-          if (this.currentMode === 'route' && this.waypoints.length >= 2) {
+          if (this.currentMode === 'route' && this.waypoints && this.waypoints.length >= 2) {
             this.showLoopSnapRecommendation(pt);
           }
         });
 
         marker.on('click', (e) => {
-          if (this.currentMode === 'route' && this.waypoints.length >= 2) {
+          if (this.currentMode === 'route') {
             L.DomEvent.stopPropagation(e);
             this.clearLoopSnapRecommendation();
             this.addWaypoint(L.latLng(pt.lat, pt.lng));
@@ -1090,7 +1548,14 @@ class StrideMapApp {
       marker.on('dragend', async (e) => {
         this.saveStateToHistory();
         const newLatLng = e.target.getLatLng();
-        this.waypoints[idx] = newLatLng;
+        const oldPt = this.waypoints[idx];
+        const newPt = L.latLng(newLatLng.lat, newLatLng.lng);
+        newPt.mode = oldPt ? (oldPt.mode || 'auto') : 'auto';
+        newPt.segmentCoords = null; // force recalculate incoming segment
+        this.waypoints[idx] = newPt;
+        if (idx + 1 < this.waypoints.length) {
+          this.waypoints[idx + 1].segmentCoords = null; // force recalculate outgoing segment
+        }
         await this.recalculateRoute();
       });
 
@@ -1101,15 +1566,16 @@ class StrideMapApp {
   async makeLoopRoute() {
     if (this.waypoints.length < 2) return;
     const startPoint = this.waypoints[0];
-    this.saveStateToHistory();
-    this.waypoints.push(L.latLng(startPoint.lat, startPoint.lng));
-    await this.recalculateRoute();
+    await this.addWaypoint(L.latLng(startPoint.lat, startPoint.lng));
   }
 
   async reverseRoute() {
     if (this.waypoints.length < 2) return;
     this.saveStateToHistory();
     this.waypoints.reverse();
+    for (let i = 1; i < this.waypoints.length; i++) {
+      this.waypoints[i].segmentCoords = null;
+    }
     await this.recalculateRoute();
   }
 
@@ -1125,6 +1591,7 @@ class StrideMapApp {
       if (l.marker) this.map.removeLayer(l.marker);
     });
     this.landmarks = [];
+    this.clearPaceInspection();
     this.renderLandmarkList();
     this.updateStats();
     this.updateControlsState();
@@ -1318,15 +1785,480 @@ class StrideMapApp {
     });
   }
 
-  getDistanceFromStartAlongPolyline(latlng) {
-    const coords = this.routePolyline.getLatLngs();
+  // --- Metode Manajemen Multi-Rute ---
+  getNextRouteColor() {
+    const usedColors = this.routes.map(r => r.color.toLowerCase());
+    const available = COLOR_PALETTE.find(c => !usedColors.includes(c.toLowerCase()));
+    return available || COLOR_PALETTE[this.routes.length % COLOR_PALETTE.length];
+  }
+
+  createRoute(options = {}) {
+    const id = options.id || 'route_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 3);
+    const name = options.name || `Rute ${this.routes.length + 1}`;
+    const color = options.color || this.getNextRouteColor();
+    const visible = options.visible !== undefined ? options.visible : true;
+    const paceSeconds = options.paceSeconds || 360;
+    const startTime = options.startTime || '06:00';
+    const snapToRoad = options.snapToRoad !== undefined ? options.snapToRoad : true;
+    const waypoints = (options.waypoints || []).map(w => {
+      const pt = L.latLng(w.lat, w.lng);
+      pt.mode = w.mode || 'auto';
+      pt.segmentCoords = w.segmentCoords || null;
+      return pt;
+    });
+
+    const route = {
+      id,
+      name,
+      color,
+      visible,
+      waypoints,
+      polyline: null,
+      waypointMarkers: [],
+      paceSeconds,
+      startTime,
+      snapToRoad,
+      undoStack: [],
+      redoStack: []
+    };
+
+    route.polyline = this.createRoutePolyline(route);
+    if (options.polylineCoords && options.polylineCoords.length > 0) {
+      route.polyline.setLatLngs(options.polylineCoords);
+    }
+
+    return route;
+  }
+
+  createRoutePolyline(route) {
+    const isActive = route.id === this.activeRouteId;
+    const poly = L.polyline([], {
+      color: route.color || '#0284c7',
+      weight: isActive ? 6 : 4.5,
+      opacity: isActive ? 0.95 : 0.65,
+      lineCap: 'round',
+      lineJoin: 'round'
+    });
+
+    if (route.visible && this.map && !this.map.hasLayer(poly)) {
+      poly.addTo(this.map);
+    }
+
+    poly.bindTooltip('', {
+      sticky: true,
+      direction: 'top',
+      offset: [0, -10],
+      className: 'route-dist-tooltip'
+    });
+
+    poly.on('mousemove', (e) => {
+      const dist = this.getDistanceFromStartAlongPolyline(e.latlng, route);
+      if (dist !== null) {
+        poly.setTooltipContent(
+          `<span style="color: ${route.color}; font-weight: 700;">● ${route.name}</span>: ${dist.toFixed(2)} km dari Start`
+        );
+      }
+    });
+
+    poly.on('click', (e) => {
+      if (this.currentMode === 'pacecheck') {
+        L.DomEvent.stopPropagation(e);
+        this.handlePaceCheckClick(e.latlng);
+      } else if (this.currentMode === 'route') {
+        // Jika dalam mode route, klik pada garis tetap menambahkan waypoint
+        this.addWaypoint(e.latlng);
+      } else if (this.currentMode === 'live') {
+        // Pada mode live, klik polyline tidak memicu switch aktif
+      } else {
+        this.setActiveRoute(route.id);
+      }
+    });
+
+    return poly;
+  }
+
+  initDefaultRoute() {
+    const def = this.createRoute({
+      id: 'route_5k',
+      name: 'Rute 5K',
+      color: '#0284c7',
+      visible: true,
+      paceSeconds: 360,
+      startTime: '06:30'
+    });
+    this.routes.push(def);
+    this.activeRouteId = def.id;
+  }
+
+  setActiveRoute(routeId) {
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    // Bersihkan marker waypoint rute aktif sebelumnya dari peta
+    const prevRoute = this.getActiveRoute();
+    if (prevRoute && prevRoute.id !== routeId) {
+      prevRoute.waypointMarkers.forEach(m => this.map.removeLayer(m));
+      prevRoute.waypointMarkers = [];
+    }
+
+    this.activeRouteId = routeId;
+
+    // Perbarui ketebalan garis rute aktif vs inaktif dan pastikan layer terpasang di map jika terlihat
+    this.routes.forEach(r => {
+      this.ensureRoutePolylineLayer(r);
+      if (r.polyline) {
+        const isActive = r.id === routeId;
+        r.polyline.setStyle({
+          weight: isActive ? 6 : 4.5,
+          opacity: isActive ? 0.95 : 0.65
+        });
+        if (isActive) {
+          r.polyline.bringToFront();
+        }
+      }
+    });
+
+    // Render waypoint markers untuk rute aktif jika sedang terlihat
+    if (route.visible) {
+      this.renderWaypointMarkers();
+    }
+
+    // Sinkronisasi status UI
+    if (this.activeRouteStatsBadge) {
+      this.activeRouteStatsBadge.textContent = route.name;
+      this.activeRouteStatsBadge.style.color = route.color;
+      this.activeRouteStatsBadge.style.borderColor = route.color;
+    }
+
+    const startBadge = document.getElementById('activeRouteStartBadge');
+    if (startBadge) {
+      startBadge.textContent = route.name;
+      startBadge.style.color = route.color;
+    }
+
+    if (this.startTimeInput) {
+      this.startTimeInput.value = route.startTime || '06:00';
+    }
+
+    if (this.paceRange) {
+      this.paceRange.value = route.paceSeconds || 360;
+    }
+
+    this.setRoutingSnapMode(route.snapToRoad !== undefined ? route.snapToRoad : true);
+
+    this.syncPaceNumberInputs();
+    this.updatePaceDisplay();
+    this.updateStats();
+    this.updateControlsState();
+    this.renderRouteList();
+
+    if (this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+  }
+
+  updateRouteStartTime(routeId, newTime) {
+    if (!newTime) return;
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    route.startTime = newTime;
+
+    // 1. Jika rute ini adalah rute aktif, sinkronkan input di panel pacing
+    if (route.id === this.activeRouteId && this.startTimeInput) {
+      if (this.startTimeInput !== document.activeElement) {
+        this.startTimeInput.value = newTime;
+      }
+    }
+
+    // 2. Sinkronkan input waktu di kartu rute (jika ada) tanpa merusak fokus jika sedang mengetik
+    const routeTimeInputs = document.querySelectorAll(`.route-time-input[data-route-id="${route.id}"]`);
+    routeTimeInputs.forEach(input => {
+      if (input !== document.activeElement && input.value !== newTime) {
+        input.value = newTime;
+      }
+    });
+
+    // 3. Sinkronkan input waktu di panel live jika ada
+    const lrscTimeInputs = document.querySelectorAll(`.lrsc-time-input[data-route-id="${route.id}"]`);
+    lrscTimeInputs.forEach(input => {
+      if (input !== document.activeElement && input.value !== newTime) {
+        input.value = newTime;
+      }
+    });
+
+    // 4. Update display landmark (termasuk tag start/finish di peta)
+    this.updateLandmarkMarkersDisplay();
+    this.updateStats();
+    this.saveToStorage();
+
+    // 5. Update pace check inspection jika sedang aktif
+    if (this.currentMode === 'pacecheck' && this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+
+    // 6. Update simulasi live: sesuaikan window waktu & hitung ulang posisi pelari
+    this.initLiveSimulationTimeWindow();
+    if (this.currentMode === 'live') {
+      this.updateLiveSimulation();
+    }
+  }
+
+  renderRouteList() {
+    if (!this.routeList) return;
+    this.routeList.innerHTML = '';
+
+    this.routes.forEach(route => {
+      const isActive = route.id === this.activeRouteId;
+      const totalKm = (this.calculateTotalDistance(route) / 1000).toFixed(2);
+
+      const item = document.createElement('div');
+      item.className = `route-item ${isActive ? 'active' : ''}`;
+      item.setAttribute('data-id', route.id);
+
+      item.innerHTML = `
+        <div class="route-item-left">
+          <input type="color" class="route-color-input" value="${route.color}" title="Klik untuk mengubah warna rute">
+          <div class="route-info-group">
+            <span class="route-name-title" title="Klik untuk memilih rute ini (Double-click untuk ubah nama)">${route.name}</span>
+            <div class="route-meta-sub">
+              <span class="route-dist-tag"><i class="fa-solid fa-route"></i> ${totalKm} km</span>
+              <span>&bull;</span>
+              <div class="route-start-inline" title="Ubah jam start khusus rute ${route.name}">
+                <i class="fa-regular fa-clock text-sky"></i>
+                <span class="route-start-label">Start:</span>
+                <input type="time" class="route-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Klik untuk mengubah jam start rute ${route.name}">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="route-item-actions">
+          <button type="button" class="route-vis-btn ${route.visible ? 'visible' : ''}" title="${route.visible ? 'Sembunyikan Rute di Peta' : 'Tampilkan Rute di Peta'}">
+            <i class="fa-solid ${route.visible ? 'fa-eye' : 'fa-eye-slash'}"></i>
+          </button>
+          ${this.routes.length > 1 ? `
+          <button type="button" class="route-del-btn" title="Hapus Rute Ini">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+          ` : ''}
+        </div>
+      `;
+
+      // Klik info rute untuk mengaktifkannya (kecuali klik color atau time input)
+      item.querySelector('.route-item-left').addEventListener('click', (e) => {
+        if (e.target.classList.contains('route-color-input') || e.target.classList.contains('route-time-input') || e.target.closest('.route-start-inline')) return;
+        this.setActiveRoute(route.id);
+      });
+
+      // Event listener waktu start rute
+      const timeInput = item.querySelector('.route-time-input');
+      if (timeInput) {
+        timeInput.addEventListener('click', (e) => e.stopPropagation());
+        timeInput.addEventListener('mousedown', (e) => e.stopPropagation());
+        const onTimeChange = (e) => {
+          e.stopPropagation();
+          this.updateRouteStartTime(route.id, e.target.value);
+        };
+        timeInput.addEventListener('input', onTimeChange);
+        timeInput.addEventListener('change', onTimeChange);
+      }
+
+      // Ubah warna rute
+      const colorInput = item.querySelector('.route-color-input');
+      colorInput.addEventListener('input', (e) => {
+        this.changeRouteColor(route.id, e.target.value);
+      });
+      colorInput.addEventListener('change', (e) => {
+        this.changeRouteColor(route.id, e.target.value);
+      });
+
+      // Double-click untuk rename
+      const nameTitle = item.querySelector('.route-name-title');
+      nameTitle.addEventListener('dblclick', () => {
+        const newName = prompt('Ubah nama rute:', route.name);
+        if (newName && newName.trim()) {
+          this.changeRouteName(route.id, newName.trim());
+        }
+      });
+
+      // Toggle visibility
+      item.querySelector('.route-vis-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleRouteVisibility(route.id);
+      });
+
+      // Delete route
+      const delBtn = item.querySelector('.route-del-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.deleteRoute(route.id);
+        });
+      }
+
+      this.routeList.appendChild(item);
+    });
+  }
+
+  addOrSwitchPresetRoute(presetKey) {
+    const config = ROUTE_PRESETS[presetKey];
+    if (!config) return;
+
+    // Jika sudah ada rute dengan preset nama ini, aktifkan
+    const existing = this.routes.find(r => r.name.toLowerCase() === config.name.toLowerCase());
+    if (existing) {
+      if (!existing.visible) {
+        this.toggleRouteVisibility(existing.id);
+      }
+      this.setActiveRoute(existing.id);
+      return;
+    }
+
+    // Jika belum ada, buat rute baru dari preset
+    const newRoute = this.createRoute({
+      name: config.name,
+      color: config.color,
+      startTime: config.startTime,
+      paceSeconds: config.paceSeconds,
+      visible: true
+    });
+
+    this.routes.push(newRoute);
+    this.setActiveRoute(newRoute.id);
+    this.renderRouteList();
+    this.saveToStorage();
+  }
+
+  addNewCustomRoute() {
+    const name = prompt('Masukkan nama rute baru (contoh: 15K Trail, Fun Run, dll):', `Rute ${this.routes.length + 1}`);
+    if (!name || !name.trim()) return;
+
+    const newRoute = this.createRoute({
+      name: name.trim(),
+      color: this.getNextRouteColor(),
+      visible: true
+    });
+
+    this.routes.push(newRoute);
+    this.setActiveRoute(newRoute.id);
+    this.renderRouteList();
+    this.saveToStorage();
+  }
+
+  toggleRouteVisibility(routeId) {
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    route.visible = !route.visible;
+
+    if (route.polyline) {
+      if (route.visible) {
+        if (!this.map.hasLayer(route.polyline)) {
+          route.polyline.addTo(this.map);
+        }
+        if (route.id === this.activeRouteId) {
+          this.renderWaypointMarkers();
+        }
+      } else {
+        if (this.map.hasLayer(route.polyline)) {
+          this.map.removeLayer(route.polyline);
+        }
+        if (route.id === this.activeRouteId) {
+          this.waypointMarkers.forEach(m => this.map.removeLayer(m));
+          this.waypointMarkers = [];
+        }
+      }
+    }
+
+    this.syncAutoStartFinishLandmarks();
+    this.renderRouteList();
+
+    if (this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+    this.saveToStorage();
+  }
+
+  deleteRoute(routeId) {
+    if (this.routes.length <= 1) {
+      alert('Minimal harus ada 1 rute dalam sistem!');
+      return;
+    }
+
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    if (!confirm(`Hapus rute "${route.name}" beserta seluruh jalurnya?`)) return;
+
+    if (route.polyline) {
+      this.map.removeLayer(route.polyline);
+    }
+    route.waypointMarkers.forEach(m => this.map.removeLayer(m));
+
+    this.routes = this.routes.filter(r => r.id !== routeId);
+
+    if (this.activeRouteId === routeId) {
+      this.activeRouteId = this.routes[0].id;
+    }
+
+    this.setActiveRoute(this.activeRouteId);
+    this.syncAutoStartFinishLandmarks();
+    this.renderRouteList();
+    this.saveToStorage();
+  }
+
+  changeRouteColor(routeId, newColor) {
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    route.color = newColor;
+    if (route.polyline) {
+      route.polyline.setStyle({ color: newColor });
+    }
+
+    this.syncAutoStartFinishLandmarks();
+    this.renderRouteList();
+    if (this.activeRouteId === routeId && this.activeRouteStatsBadge) {
+      this.activeRouteStatsBadge.style.color = newColor;
+      this.activeRouteStatsBadge.style.borderColor = newColor;
+    }
+
+    if (this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+    this.saveToStorage();
+  }
+
+  changeRouteName(routeId, newName) {
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+
+    route.name = newName;
+    this.syncAutoStartFinishLandmarks();
+    this.renderRouteList();
+
+    if (this.activeRouteId === routeId && this.activeRouteStatsBadge) {
+      this.activeRouteStatsBadge.textContent = newName;
+    }
+
+    if (this.paceInspectState) {
+      this.recalculatePaceInspection();
+    }
+    this.saveToStorage();
+  }
+
+  // Hitung titik proyeksi terdekat pada polyline rute dan jarak kumulatif dari Start
+  getProjectionOnRoute(latlng, targetRoute = null) {
+    const route = targetRoute || this.getActiveRoute();
+    if (!route || !route.polyline) return null;
+    const coords = route.polyline.getLatLngs();
     if (!coords || coords.length < 2) return null;
 
     let closestSegmentIdx = 0;
     let minDistanceSq = Infinity;
     let bestProjectionFactor = 0;
 
-    // Hitung jarak segmen terdekat dan proyeksi titik latlng
+    // Cari segmen garis terdekat dari titik latlng
     for (let i = 0; i < coords.length - 1; i++) {
       const p1 = coords[i];
       const p2 = coords[i + 1];
@@ -1352,13 +2284,12 @@ class StrideMapApp {
       }
     }
 
-    // Akumulasi jarak hingga segmen terdekat
+    // Hitung jarak kumulatif dari titik start hingga proyeksi titik pada segmen
     let cumulativeMeters = 0;
     for (let i = 0; i < closestSegmentIdx; i++) {
       cumulativeMeters += coords[i].distanceTo(coords[i + 1]);
     }
 
-    // Tambah jarak p1 ke titik proyeksi pada segmen bersangkutan
     const pStart = coords[closestSegmentIdx];
     const pEnd = coords[closestSegmentIdx + 1];
     const projectedPt = L.latLng(
@@ -1367,11 +2298,755 @@ class StrideMapApp {
     );
     cumulativeMeters += pStart.distanceTo(projectedPt);
 
-    return cumulativeMeters / 1000;
+    const distToRouteMeters = latlng.distanceTo(projectedPt);
+
+    return {
+      latlng: projectedPt,
+      distanceKm: cumulativeMeters / 1000,
+      distToRouteMeters: distToRouteMeters
+    };
   }
 
-  calculateTotalDistance() {
-    const coords = this.routePolyline.getLatLngs();
+  getDistanceFromStartAlongPolyline(latlng, targetRoute = null) {
+    const proj = this.getProjectionOnRoute(latlng, targetRoute);
+    return proj ? proj.distanceKm : null;
+  }
+
+  // --- Logika Mode Cek Pace Titik (Multi-Rute) ---
+  handlePaceCheckClick(latlng) {
+    const visibleRoutes = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length >= 2);
+    if (visibleRoutes.length === 0) {
+      alert('Silakan buat rute lari terlebih dahulu sebelum menganalisis pace titik!');
+      return;
+    }
+
+    // Temukan titik snap pada rute terdekat
+    let bestSnap = latlng;
+    let minPerp = Infinity;
+
+    visibleRoutes.forEach(r => {
+      const proj = this.getProjectionOnRoute(latlng, r);
+      if (proj && proj.distToRouteMeters < minPerp) {
+        minPerp = proj.distToRouteMeters;
+        bestSnap = proj.latlng;
+      }
+    });
+
+    this.paceInspectState = {
+      latlng: bestSnap
+    };
+
+    this.renderOrUpdatePaceInspectMarker();
+    this.recalculatePaceInspection();
+  }
+
+  renderOrUpdatePaceInspectMarker() {
+    if (!this.paceInspectState || !this.paceInspectState.latlng) return;
+
+    if (!this.paceInspectMarker) {
+      const icon = L.divIcon({
+        className: 'landmark-div-icon-wrapper',
+        html: `
+          <div class="pace-inspect-pin-wrapper" title="Tarik / geser untuk memindahkan titik sepanjang rute">
+            <div class="pace-inspect-radar"></div>
+            <div class="pace-inspect-pin">
+              <i class="fa-solid fa-stopwatch"></i>
+            </div>
+          </div>
+        `,
+        iconSize: [44, 44],
+        iconAnchor: [22, 22]
+      });
+
+      this.paceInspectMarker = L.marker(this.paceInspectState.latlng, {
+        icon: icon,
+        draggable: true,
+        zIndexOffset: 3000
+      }).addTo(this.map);
+
+      this.paceInspectMarker.bindTooltip('', {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -22],
+        className: 'pace-inspect-tooltip'
+      });
+
+      this.paceInspectMarker.on('drag', (e) => {
+        const curPos = e.target.getLatLng();
+        let bestSnap = curPos;
+        let minPerp = Infinity;
+
+        this.routes.forEach(r => {
+          if (!r.visible || !r.polyline || r.polyline.getLatLngs().length < 2) return;
+          const proj = this.getProjectionOnRoute(curPos, r);
+          if (proj && proj.distToRouteMeters < minPerp) {
+            minPerp = proj.distToRouteMeters;
+            bestSnap = proj.latlng;
+          }
+        });
+
+        this.paceInspectState.latlng = bestSnap;
+        this.paceInspectMarker.setLatLng(bestSnap);
+        this.recalculatePaceInspection();
+      });
+    } else {
+      this.paceInspectMarker.setLatLng(this.paceInspectState.latlng);
+    }
+  }
+
+  recalculatePaceInspection() {
+    if (!this.paceInspectState) return;
+
+    const inspectLatLng = this.paceInspectState.latlng;
+    const targetStr = (this.inspectTargetTimeInput ? this.inspectTargetTimeInput.value : '06:30') || '06:30';
+
+    const parseToSeconds = (timeStr) => {
+      const parts = timeStr.split(':').map(Number);
+      const h = parts[0] || 0;
+      const m = parts[1] || 0;
+      const s = parts[2] || 0;
+      return h * 3600 + m * 60 + s;
+    };
+
+    const targetSeconds = parseToSeconds(targetStr);
+
+    const multiListContainer = document.getElementById('paceMultiRouteList');
+    if (!multiListContainer) return;
+    multiListContainer.innerHTML = '';
+
+    const visibleRoutes = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length >= 2);
+    if (visibleRoutes.length === 0) {
+      multiListContainer.innerHTML = '<div class="empty-state" style="padding: 14px;"><i class="fa-solid fa-eye-slash"></i><span>Tidak ada rute terlihat dengan jalur minimal 2 titik.</span></div>';
+      return;
+    }
+
+    const tooltipRows = [];
+
+    visibleRoutes.forEach(route => {
+      const proj = this.getProjectionOnRoute(inspectLatLng, route);
+      if (!proj) return;
+
+      const totalKm = this.calculateTotalDistance(route) / 1000;
+      const isTraversed = proj.distToRouteMeters <= 80;
+
+      // Jika rute ini TIDAK melewati titik pantau
+      if (!isTraversed) {
+        tooltipRows.push(`
+          <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
+            <span><span style="color: ${route.color};">●</span> <strong>${route.name}:</strong></span>
+            <span style="color: #f87171; font-weight: 600;"><i class="fa-solid fa-ban"></i> Tidak lewat</span>
+          </div>
+        `);
+
+        const card = document.createElement('div');
+        card.className = 'pace-multi-route-card';
+        card.style.borderLeftColor = '#94a3b8';
+        card.style.background = '#f8fafc';
+        card.innerHTML = `
+          <div class="pmr-header">
+            <div class="pmr-title" style="color: ${route.color};">
+              <span class="pmr-dot" style="background-color: ${route.color};"></span>
+              <strong>${route.name}</strong>
+              <span class="pmr-total-tag">Total: ${totalKm.toFixed(2)} km</span>
+            </div>
+            <span class="prc-prox-badge off-track"><i class="fa-solid fa-ban"></i> Tidak Melalui Jalur Ini</span>
+          </div>
+          <div class="pmr-offroute-notice">
+            <i class="fa-solid fa-circle-exclamation"></i>
+            <span>Rute <strong>${route.name}</strong> tidak melintasi titik ini (jarak ke jalur terdekat ~${proj.distToRouteMeters >= 1000 ? (proj.distToRouteMeters / 1000).toFixed(2) + ' km' : Math.round(proj.distToRouteMeters) + ' m'}).</span>
+          </div>
+        `;
+        multiListContainer.appendChild(card);
+        return;
+      }
+
+      const distKm = proj.distanceKm;
+      const startStr = route.startTime || '06:00';
+      const startSeconds = parseToSeconds(startStr);
+
+      let elapsedSeconds = targetSeconds - startSeconds;
+      if (elapsedSeconds < 0) {
+        elapsedSeconds += 24 * 3600;
+      }
+
+      const elpHours = Math.floor(elapsedSeconds / 3600);
+      const elpMins = Math.floor((elapsedSeconds % 3600) / 60);
+      const elpSecs = elapsedSeconds % 60;
+      const elapsedFormatted = [
+        elpHours.toString().padStart(2, '0'),
+        elpMins.toString().padStart(2, '0'),
+        elpSecs.toString().padStart(2, '0')
+      ].join(':');
+
+      let paceStr = '--:--';
+      let speedStr = '0.0 km/jam';
+      let category = 'Titik Start';
+      let catColor = '#64748b';
+      let paceSeconds = 0;
+
+      if (distKm > 0.005 && elapsedSeconds > 0) {
+        paceSeconds = Math.round(elapsedSeconds / distKm);
+        const paceMin = Math.floor(paceSeconds / 60);
+        const paceSec = paceSeconds % 60;
+        paceStr = `${paceMin}:${paceSec.toString().padStart(2, '0')}`;
+        speedStr = `${(distKm / (elapsedSeconds / 3600)).toFixed(1)} km/jam`;
+
+        if (paceSeconds < 240) {
+          category = 'Sprint / Elite';
+          catColor = '#ef4444';
+        } else if (paceSeconds < 285) {
+          category = 'Fast / 5K-10K';
+          catColor = '#ea580c';
+        } else if (paceSeconds < 330) {
+          category = 'Tempo Run';
+          catColor = '#f59e0b';
+        } else if (paceSeconds < 390) {
+          category = 'Half Marathon Pace';
+          catColor = '#10b981';
+        } else if (paceSeconds < 450) {
+          category = 'Easy / Marathon';
+          catColor = '#0284c7';
+        } else {
+          category = 'Recovery / Jog';
+          catColor = '#8b5cf6';
+        }
+      } else if (distKm <= 0.005) {
+        paceStr = '0:00';
+        category = 'Garis Start';
+      }
+
+      const proximityHtml = `<span class="prc-prox-badge on-track"><i class="fa-solid fa-circle-check"></i> Melintasi Jalur</span>`;
+
+      tooltipRows.push(`
+        <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
+          <span><span style="color: ${route.color};">●</span> <strong>${route.name}:</strong> ${distKm.toFixed(2)} km</span>
+          <span style="color: #38bdf8; font-weight: 700;">${paceStr} /km</span>
+        </div>
+      `);
+
+      const card = document.createElement('div');
+      card.className = 'pace-multi-route-card';
+      card.style.borderLeftColor = route.color;
+      card.innerHTML = `
+        <div class="pmr-header">
+          <div class="pmr-title" style="color: ${route.color};">
+            <span class="pmr-dot" style="background-color: ${route.color};"></span>
+            <strong>${route.name}</strong>
+            <span class="pmr-total-tag">Total: ${totalKm.toFixed(2)} km</span>
+          </div>
+          ${proximityHtml}
+        </div>
+        <div class="pmr-stats-row">
+          <div class="pmr-col">
+            <span class="pmr-lbl">Jarak dari Start</span>
+            <span class="pmr-val">${distKm.toFixed(2)} km</span>
+          </div>
+          <div class="pmr-col">
+            <span class="pmr-lbl">Start (${startStr}) ➔ Waktu</span>
+            <span class="pmr-val">${elapsedFormatted}</span>
+          </div>
+        </div>
+        <div class="pmr-pace-box">
+          <div class="pmr-pace-val-group">
+            <span class="pmr-pace-label">Target Pace:</span>
+            <span class="pmr-pace-num" style="color: ${route.color};">${paceStr}</span>
+            <span class="pmr-pace-unit">/km</span>
+          </div>
+          <div class="pmr-pace-sub">
+            <span><i class="fa-solid fa-gauge-high"></i> ${speedStr}</span>
+            <span class="pmr-category-pill" style="color: ${catColor}; border-color: ${catColor};">${category}</span>
+          </div>
+        </div>
+      `;
+      multiListContainer.appendChild(card);
+    });
+
+    if (this.paceCheckEmpty) this.paceCheckEmpty.style.display = 'none';
+    if (this.paceCheckResultCard) this.paceCheckResultCard.style.display = 'flex';
+
+    if (this.paceInspectMarker) {
+      this.paceInspectMarker.setTooltipContent(`
+        <div style="min-width: 175px;">
+          <div style="font-weight: 700; color: #ffffff; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; margin-bottom: 4px;">
+            <i class="fa-regular fa-clock" style="color: #38bdf8;"></i> Target Jam: ${targetStr}
+          </div>
+          ${tooltipRows.join('')}
+        </div>
+      `);
+    }
+  }
+
+  saveInspectedPointAsLandmark() {
+    if (!this.paceInspectState || !this.paceInspectState.latlng) return;
+
+    const targetStr = (this.inspectTargetTimeInput ? this.inspectTargetTimeInput.value : '06:30') || '06:30';
+
+    this.saveStateToHistory();
+    this.createInternalLandmark({
+      lat: this.paceInspectState.latlng.lat,
+      lng: this.paceInspectState.latlng.lng,
+      type: 'checkpoint',
+      name: `Checkpoint (${targetStr})`,
+      desc: `Titik pantau waktu pelari pukul ${targetStr}`,
+      isAuto: false,
+      showTimeEstimate: false
+    });
+
+    this.renderLandmarkList();
+    this.updateStats();
+    alert(`Landmark Checkpoint (Pukul ${targetStr}) berhasil disimpan!`);
+  }
+
+  clearPaceInspection() {
+    if (this.paceInspectMarker) {
+      this.map.removeLayer(this.paceInspectMarker);
+      this.paceInspectMarker = null;
+    }
+    this.paceInspectState = null;
+    if (this.paceCheckEmpty) this.paceCheckEmpty.style.display = 'flex';
+    if (this.paceCheckResultCard) this.paceCheckResultCard.style.display = 'none';
+  }
+
+  // --- Logika Mode Live / Simulasi Pelari Real-Time ---
+  getLatLngAtDistance(polylineCoords, targetDistanceKm) {
+    if (!polylineCoords || polylineCoords.length === 0) return null;
+    if (polylineCoords.length === 1 || targetDistanceKm <= 0) {
+      return polylineCoords[0];
+    }
+
+    let cumulativeMeters = 0;
+    const targetMeters = targetDistanceKm * 1000;
+
+    for (let i = 0; i < polylineCoords.length - 1; i++) {
+      const p1 = polylineCoords[i];
+      const p2 = polylineCoords[i + 1];
+      const segMeters = p1.distanceTo(p2);
+
+      if (cumulativeMeters + segMeters >= targetMeters) {
+        const remaining = targetMeters - cumulativeMeters;
+        const ratio = segMeters > 0 ? remaining / segMeters : 0;
+        return L.latLng(
+          p1.lat + ratio * (p2.lat - p1.lat),
+          p1.lng + ratio * (p2.lng - p1.lng)
+        );
+      }
+      cumulativeMeters += segMeters;
+    }
+
+    return polylineCoords[polylineCoords.length - 1];
+  }
+
+  initLiveSimulationTimeWindow() {
+    const visibleRoutes = this.routes.filter(r => r.visible);
+    if (visibleRoutes.length === 0) return;
+
+    const parseToSeconds = (timeStr) => {
+      const parts = (timeStr || '06:00').split(':').map(Number);
+      return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    };
+
+    let minStart = Infinity;
+    let maxFinish = -Infinity;
+
+    visibleRoutes.forEach(r => {
+      const startSec = parseToSeconds(r.startTime);
+      const totalKm = this.calculateTotalDistance(r) / 1000;
+      const finishSec = totalKm > 0 ? (startSec + Math.round(totalKm * 480)) : (startSec + 3600); // Pace 8 (paling lambat)
+
+      if (startSec < minStart) minStart = startSec;
+      if (finishSec > maxFinish) maxFinish = finishSec;
+    });
+
+    if (minStart === Infinity) minStart = 6 * 3600;
+    if (maxFinish === -Infinity || maxFinish <= minStart) maxFinish = minStart + 3 * 3600;
+
+    const sliderMin = Math.max(0, minStart - 600); // 10 menit sebelum start tercepat
+    const sliderMax = Math.min(86400, Math.max(sliderMin + 1800, maxFinish + 600)); // 10 menit setelah finish terlambat
+
+    if (this.liveTimeSlider) {
+      this.liveTimeSlider.min = sliderMin;
+      this.liveTimeSlider.max = sliderMax;
+      
+      // Jika simulasi sedang jeda / tidak berjalan, sesuaikan waktu simulasi langsung ke jam start
+      if (!this.liveSimulationRunning) {
+        this.liveCurrentSeconds = minStart;
+      } else {
+        if (this.liveCurrentSeconds < sliderMin) this.liveCurrentSeconds = sliderMin;
+        if (this.liveCurrentSeconds > sliderMax) this.liveCurrentSeconds = sliderMax;
+      }
+      this.liveTimeSlider.value = this.liveCurrentSeconds;
+    }
+
+    const fmt = (s) => {
+      const h = Math.floor(s / 3600) % 24;
+      const m = Math.floor((s % 3600) / 60);
+      return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    };
+
+    if (this.liveSliderMinLabel) this.liveSliderMinLabel.textContent = fmt(sliderMin);
+    if (this.liveSliderMaxLabel) this.liveSliderMaxLabel.textContent = fmt(sliderMax);
+
+    // Perbarui display jam digital langsung
+    const curSec = Math.floor(this.liveCurrentSeconds) % 86400;
+    const hh = Math.floor(curSec / 3600);
+    const mm = Math.floor((curSec % 3600) / 60);
+    const ss = curSec % 60;
+    const curFmt = `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}:${ss.toString().padStart(2, '0')}`;
+    if (this.liveClockDisplay) this.liveClockDisplay.textContent = curFmt;
+    if (this.liveSliderCurrentLabel) this.liveSliderCurrentLabel.textContent = curFmt;
+  }
+
+  syncLiveToCurrentLocalTime() {
+    const now = new Date();
+    this.liveCurrentSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+
+    if (this.liveTimeSlider) {
+      const min = parseInt(this.liveTimeSlider.min) || 0;
+      const max = parseInt(this.liveTimeSlider.max) || 86400;
+      if (this.liveCurrentSeconds < min) this.liveTimeSlider.min = Math.max(0, this.liveCurrentSeconds - 600);
+      if (this.liveCurrentSeconds > max) this.liveTimeSlider.max = Math.min(86400, this.liveCurrentSeconds + 600);
+      this.liveTimeSlider.value = this.liveCurrentSeconds;
+    }
+
+    this.updateLiveSimulation();
+  }
+
+  toggleLivePlayPause() {
+    if (this.liveSimulationRunning) {
+      this.pauseLiveSimulation();
+    } else {
+      this.playLiveSimulation();
+    }
+  }
+
+  playLiveSimulation() {
+    if (this.liveSimulationRunning) return;
+    this.liveSimulationRunning = true;
+
+    if (this.livePlayPauseBtn) {
+      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Jeda';
+      this.livePlayPauseBtn.classList.add('running');
+    }
+    if (this.liveSimulationStatus) {
+      this.liveSimulationStatus.innerHTML = '<span class="pulse-dot"></span> SIMULASI LIVE';
+      this.liveSimulationStatus.style.background = 'rgba(239, 68, 68, 0.2)';
+    }
+
+    let lastTime = performance.now();
+    const intervalMs = 120;
+
+    this.liveSimulationTimer = setInterval(() => {
+      const now = performance.now();
+      const deltaSec = (now - lastTime) / 1000;
+      lastTime = now;
+
+      this.liveCurrentSeconds += deltaSec * this.liveSpeedMultiplier;
+
+      if (this.liveTimeSlider) {
+        const max = parseInt(this.liveTimeSlider.max) || 86400;
+        if (this.liveCurrentSeconds >= max) {
+          this.liveCurrentSeconds = parseInt(this.liveTimeSlider.min) || 0;
+        }
+      }
+
+      this.updateLiveSimulation();
+    }, intervalMs);
+  }
+
+  pauseLiveSimulation() {
+    this.liveSimulationRunning = false;
+    if (this.liveSimulationTimer) {
+      clearInterval(this.liveSimulationTimer);
+      this.liveSimulationTimer = null;
+    }
+
+    if (this.livePlayPauseBtn) {
+      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i> Mulai';
+      this.livePlayPauseBtn.classList.remove('running');
+    }
+    if (this.liveSimulationStatus) {
+      this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-pause"></i> JEDA';
+      this.liveSimulationStatus.style.background = 'rgba(100, 116, 139, 0.3)';
+    }
+  }
+
+  stepLiveSimulation(deltaSeconds) {
+    this.liveCurrentSeconds = Math.max(0, Math.min(86400, this.liveCurrentSeconds + deltaSeconds));
+    if (this.liveTimeSlider) {
+      this.liveTimeSlider.value = this.liveCurrentSeconds;
+    }
+    this.updateLiveSimulation();
+  }
+
+  renderLivePaceChips() {
+    if (!this.livePaceChips) return;
+    this.livePaceChips.innerHTML = '';
+
+    LIVE_PACES.forEach(p => {
+      const isActive = this.liveActivePaces.has(p.pace);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `pace-chip-toggle ${isActive ? 'active' : ''}`;
+      chip.style.color = p.color;
+      chip.innerHTML = `
+        <span class="pace-color-dot" style="background-color: ${p.color};"></span>
+        <span>${p.name} (${p.pace}:00)</span>
+      `;
+      chip.addEventListener('click', () => {
+        this.toggleLivePaceFilter(p.pace);
+      });
+      this.livePaceChips.appendChild(chip);
+    });
+  }
+
+  toggleLivePaceFilter(paceNum) {
+    if (this.liveActivePaces.has(paceNum)) {
+      if (this.liveActivePaces.size > 1) {
+        this.liveActivePaces.delete(paceNum);
+      }
+    } else {
+      this.liveActivePaces.add(paceNum);
+    }
+    this.renderLivePaceChips();
+    this.updateLiveSimulation();
+  }
+
+  clearLiveRunnerMarkers() {
+    this.liveRunnerMarkers.forEach(m => this.map.removeLayer(m));
+    this.liveRunnerMarkers.clear();
+  }
+
+  updateLiveSimulation() {
+    const curSec = Math.floor(this.liveCurrentSeconds) % 86400;
+    const hh = Math.floor(curSec / 3600);
+    const mm = Math.floor((curSec % 3600) / 60);
+    const ss = curSec % 60;
+    const clockFormatted = [
+      hh.toString().padStart(2, '0'),
+      mm.toString().padStart(2, '0'),
+      ss.toString().padStart(2, '0')
+    ].join(':');
+
+    if (this.liveClockDisplay) {
+      this.liveClockDisplay.textContent = clockFormatted;
+    }
+    if (this.liveSliderCurrentLabel) {
+      this.liveSliderCurrentLabel.textContent = clockFormatted;
+    }
+    if (this.liveTimeSlider && !this.liveTimeSlider.matches(':active')) {
+      this.liveTimeSlider.value = curSec;
+    }
+
+    const parseToSeconds = (timeStr) => {
+      const parts = (timeStr || '06:00').split(':').map(Number);
+      return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+    };
+
+    const visibleRoutes = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length >= 2);
+    const activeMarkerKeys = new Set();
+    const visibleRouteIds = new Set(visibleRoutes.map(r => r.id));
+
+    if (!this.liveRunnerStatusList) return;
+
+    if (visibleRoutes.length === 0) {
+      this.liveRunnerStatusList.innerHTML = '<div class="empty-state" style="padding: 10px;"><i class="fa-solid fa-eye-slash"></i><span>Tidak ada rute terlihat dengan jalur minimal 2 titik.</span></div>';
+      this.clearLiveRunnerMarkers();
+      return;
+    }
+
+    // Hapus empty state jika ada
+    const emptyStateEl = this.liveRunnerStatusList.querySelector('.empty-state');
+    if (emptyStateEl) emptyStateEl.remove();
+
+    // Hapus kartu rute yang sudah tidak visible
+    const existingCards = this.liveRunnerStatusList.querySelectorAll('.live-route-status-card');
+    existingCards.forEach(card => {
+      const rid = card.getAttribute('data-route-id');
+      if (!visibleRouteIds.has(rid)) {
+        card.remove();
+      }
+    });
+
+    visibleRoutes.forEach(route => {
+      const coords = route.polyline.getLatLngs();
+      const totalKm = this.calculateTotalDistance(route) / 1000;
+      const startSec = parseToSeconds(route.startTime);
+      const elapsedSeconds = curSec - startSec;
+
+      let runnersRowsHtml = '';
+
+      LIVE_PACES.forEach(pItem => {
+        if (!this.liveActivePaces.has(pItem.pace)) {
+          const key = `${route.id}_p${pItem.pace}`;
+          if (this.liveRunnerMarkers.has(key)) {
+            this.map.removeLayer(this.liveRunnerMarkers.get(key));
+            this.liveRunnerMarkers.delete(key);
+          }
+          return;
+        }
+
+        const key = `${route.id}_p${pItem.pace}`;
+        activeMarkerKeys.add(key);
+
+        let runnerPos = null;
+        let isWaiting = false;
+        let isFinished = false;
+        let statusText = '';
+        let distKm = 0;
+        let finishClock = '';
+
+        if (elapsedSeconds < 0) {
+          isWaiting = true;
+          runnerPos = coords[0];
+          statusText = `Menunggu Start (${route.startTime})`;
+        } else {
+          distKm = elapsedSeconds / pItem.paceSeconds;
+          if (distKm >= totalKm) {
+            isFinished = true;
+            distKm = totalKm;
+            runnerPos = coords[coords.length - 1];
+            const finishSecTotal = startSec + Math.round(totalKm * pItem.paceSeconds);
+            const fH = Math.floor(finishSecTotal / 3600) % 24;
+            const fM = Math.floor((finishSecTotal % 3600) / 60);
+            const fS = finishSecTotal % 60;
+            finishClock = `${fH.toString().padStart(2, '0')}:${fM.toString().padStart(2, '0')}:${fS.toString().padStart(2, '0')}`;
+            statusText = `FINISH (${finishClock})`;
+          } else {
+            runnerPos = this.getLatLngAtDistance(coords, distKm);
+            statusText = `KM ${distKm.toFixed(2)} / ${totalKm.toFixed(2)} km`;
+          }
+        }
+
+        if (!runnerPos) return;
+
+        let marker = this.liveRunnerMarkers.get(key);
+        const iconHtml = `
+          <div class="live-runner-marker-wrap ${isFinished ? 'finished' : ''} ${isWaiting ? 'waiting' : ''}" style="--pace-color: ${pItem.color};">
+            <div class="live-runner-halo"></div>
+            <div class="live-runner-avatar">
+              <i class="fa-solid ${isFinished ? 'fa-flag-checkered' : (isWaiting ? 'fa-hourglass-start' : 'fa-person-running')}"></i>
+              <span class="live-runner-pnum">P${pItem.pace}</span>
+            </div>
+            <div class="live-runner-route-tag" style="background-color: ${route.color};">${route.name}</div>
+          </div>
+        `;
+
+        const runnerIcon = L.divIcon({
+          className: '',
+          html: iconHtml,
+          iconSize: [48, 48],
+          iconAnchor: [24, 24]
+        });
+
+        const tooltipContent = `
+          <div style="font-family: inherit; font-size: 11px;">
+            <div style="font-weight: 800; color: ${route.color}; margin-bottom: 2px;">
+              ● ${route.name} (Start: ${route.startTime})
+            </div>
+            <div style="font-size: 12px; font-weight: 700; color: ${pItem.color};">
+              Pelari Pace ${pItem.pace} (${pItem.pace}:00/km &bull; ${pItem.speedKmH} km/jam)
+            </div>
+            <div style="color: #cbd5e1; margin-top: 3px;">
+              Posisi: <strong>${statusText}</strong>
+            </div>
+          </div>
+        `;
+
+        if (!marker) {
+          marker = L.marker(runnerPos, {
+            icon: runnerIcon,
+            zIndexOffset: 2500 + pItem.pace * 10
+          }).addTo(this.map);
+
+          marker.bindTooltip(tooltipContent, {
+            direction: 'top',
+            offset: [0, -20],
+            className: 'runner-live-tooltip'
+          });
+
+          this.liveRunnerMarkers.set(key, marker);
+        } else {
+          marker.setLatLng(runnerPos);
+          marker.setIcon(runnerIcon);
+          marker.setTooltipContent(tooltipContent);
+        }
+
+        runnersRowsHtml += `
+          <div class="lrsc-runner-row">
+            <div class="lrsc-runner-left">
+              <span class="lrsc-pace-badge" style="background-color: ${pItem.color};">P${pItem.pace}</span>
+              <span>${pItem.name}</span>
+            </div>
+            <div class="lrsc-runner-status ${isFinished ? 'finished' : (isWaiting ? 'waiting' : '')}">
+              ${isFinished ? '<i class="fa-solid fa-flag-checkered"></i> ' : ''}${statusText}
+            </div>
+          </div>
+        `;
+      });
+
+      let routeCard = this.liveRunnerStatusList.querySelector(`.live-route-status-card[data-route-id="${route.id}"]`);
+      if (!routeCard) {
+        routeCard = document.createElement('div');
+        routeCard.className = 'live-route-status-card';
+        routeCard.setAttribute('data-route-id', route.id);
+        routeCard.style.borderLeftColor = route.color;
+
+        routeCard.innerHTML = `
+          <div class="lrsc-header">
+            <span class="lrsc-title" style="color: ${route.color};">● ${route.name} (${totalKm.toFixed(2)} km)</span>
+            <div class="lrsc-start-wrap" title="Ubah jam start rute ${route.name}">
+              <i class="fa-regular fa-clock"></i>
+              <span style="font-size: 0.68rem; color: #64748b;">Start:</span>
+              <input type="time" class="lrsc-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Klik untuk mengubah jam start rute ini">
+            </div>
+          </div>
+          <div class="lrsc-runners-table">
+            ${runnersRowsHtml}
+          </div>
+        `;
+
+        const timeInput = routeCard.querySelector('.lrsc-time-input');
+        if (timeInput) {
+          timeInput.addEventListener('click', (e) => e.stopPropagation());
+          timeInput.addEventListener('mousedown', (e) => e.stopPropagation());
+          const onTimeChange = (e) => {
+            e.stopPropagation();
+            this.updateRouteStartTime(route.id, e.target.value);
+          };
+          timeInput.addEventListener('input', onTimeChange);
+          timeInput.addEventListener('change', onTimeChange);
+        }
+
+        this.liveRunnerStatusList.appendChild(routeCard);
+      } else {
+        // Update elemen yang ada tanpa merusak fokus input saat user sedang mengetik
+        const titleEl = routeCard.querySelector('.lrsc-title');
+        if (titleEl) titleEl.textContent = `● ${route.name} (${totalKm.toFixed(2)} km)`;
+        titleEl.style.color = route.color;
+        routeCard.style.borderLeftColor = route.color;
+
+        const timeInput = routeCard.querySelector('.lrsc-time-input');
+        if (timeInput && timeInput !== document.activeElement && timeInput.value !== (route.startTime || '06:00')) {
+          timeInput.value = route.startTime || '06:00';
+        }
+
+        const tableEl = routeCard.querySelector('.lrsc-runners-table');
+        if (tableEl) tableEl.innerHTML = runnersRowsHtml;
+      }
+    });
+
+    this.liveRunnerMarkers.forEach((m, key) => {
+      if (!activeMarkerKeys.has(key)) {
+        this.map.removeLayer(m);
+        this.liveRunnerMarkers.delete(key);
+      }
+    });
+  }
+
+  calculateTotalDistance(targetRoute = null) {
+    const route = targetRoute || this.getActiveRoute();
+    if (!route || !route.polyline) return 0;
+    const coords = route.polyline.getLatLngs();
     if (!coords || coords.length < 2) return 0;
 
     let totalMeters = 0;
@@ -1382,11 +3057,13 @@ class StrideMapApp {
   }
 
   updateStats() {
-    const totalMeters = this.calculateTotalDistance();
+    const activeRoute = this.getActiveRoute();
+    const totalMeters = this.calculateTotalDistance(activeRoute);
     const km = totalMeters / 1000;
     this.distKmEl.textContent = km.toFixed(2);
 
-    const totalSeconds = Math.round(km * this.paceSeconds);
+    const paceSec = activeRoute ? activeRoute.paceSeconds : 360;
+    const totalSeconds = Math.round(km * paceSec);
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
@@ -1398,8 +3075,14 @@ class StrideMapApp {
     ].join(':');
 
     this.estTimeEl.textContent = formattedTime;
-    this.pointCountEl.textContent = this.waypoints.length;
+    this.pointCountEl.textContent = activeRoute ? activeRoute.waypoints.length : 0;
     this.landmarkCountEl.textContent = this.landmarks.length;
+
+    if (this.activeRouteStatsBadge && activeRoute) {
+      this.activeRouteStatsBadge.textContent = activeRoute.name;
+      this.activeRouteStatsBadge.style.color = activeRoute.color;
+      this.activeRouteStatsBadge.style.borderColor = activeRoute.color;
+    }
   }
 
   syncPaceNumberInputs() {
@@ -1528,12 +3211,67 @@ class StrideMapApp {
     this.reverseRouteBtn.disabled = this.waypoints.length < 2;
   }
 
+  initModeScrollNavigation() {
+    const container = this.modeSelectorGroup;
+    if (!container) return;
+
+    if (this.modeScrollLeftBtn) {
+      this.modeScrollLeftBtn.addEventListener('click', () => {
+        container.scrollBy({ left: -140, behavior: 'smooth' });
+      });
+    }
+
+    if (this.modeScrollRightBtn) {
+      this.modeScrollRightBtn.addEventListener('click', () => {
+        container.scrollBy({ left: 140, behavior: 'smooth' });
+      });
+    }
+
+    // Scroll horizontal via mouse wheel jika kursor diarahkan ke area selector
+    container.addEventListener('wheel', (e) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        container.scrollLeft += e.deltaY;
+      }
+    }, { passive: false });
+
+    // Drag to scroll untuk kenyamanan mouse desktop
+    let isDown = false;
+    let startX = 0;
+    let scrollLeft = 0;
+
+    container.addEventListener('mousedown', (e) => {
+      isDown = true;
+      startX = e.pageX - container.offsetLeft;
+      scrollLeft = container.scrollLeft;
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDown = false;
+    });
+
+    container.addEventListener('mousemove', (e) => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - container.offsetLeft;
+      const walk = (x - startX) * 1.5;
+      container.scrollLeft = scrollLeft - walk;
+    });
+  }
+
   locateUser() {
+    const isInsecure = !window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+
     if (!navigator.geolocation) {
-      alert('Geolocation tidak didukung pada browser Anda.');
+      if (isInsecure) {
+        this.openGpsHelpModal();
+      } else {
+        this.fetchIpLocation();
+      }
       return;
     }
-    this.showLoading(true, 'Mendeteksi lokasi Anda...');
+
+    this.showLoading(true, 'Mendeteksi lokasi GPS...');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         this.showLoading(false);
@@ -1548,23 +3286,107 @@ class StrideMapApp {
           weight: 3,
           opacity: 1,
           fillOpacity: 0.9
-        }).addTo(this.map).bindPopup('Lokasi Anda Saat Ini').openPopup();
+        }).addTo(this.map).bindPopup('<strong>Lokasi Anda Saat Ini</strong><br>Akurasi GPS Tinggi').openPopup();
       },
       (err) => {
         this.showLoading(false);
-        alert('Gagal mendapatkan lokasi: ' + err.message);
+        console.warn('Geolocation error:', err);
+        const errMsg = (err && err.message) ? err.message.toLowerCase() : '';
+        const isSecureOriginErr = isInsecure || (err && (
+          err.code === 1 || 
+          errMsg.includes('secure') || 
+          errMsg.includes('origin')
+        ));
+
+        if (isSecureOriginErr) {
+          this.openGpsHelpModal();
+        } else {
+          alert('Gagal mendapatkan lokasi GPS: ' + (err.message || 'Izin ditolak'));
+        }
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { enableHighAccuracy: true, timeout: 6000 }
     );
   }
 
+  openGpsHelpModal() {
+    if (this.gpsOriginUrlCode) {
+      this.gpsOriginUrlCode.textContent = window.location.origin;
+    }
+    if (this.gpsHelpModal) {
+      this.gpsHelpModal.style.display = 'flex';
+    }
+  }
+
+  closeGpsHelpModal() {
+    if (this.gpsHelpModal) {
+      this.gpsHelpModal.style.display = 'none';
+    }
+  }
+
+  async fetchIpLocation() {
+    this.showLoading(true, 'Mendeteksi perkiraan lokasi via jaringan (IP)...');
+    try {
+      let lat = null, lng = null, label = '';
+      
+      try {
+        const res = await fetch('https://ipwho.is/');
+        const data = await res.json();
+        if (data && data.success && data.latitude && data.longitude) {
+          lat = data.latitude;
+          lng = data.longitude;
+          label = `${data.city || ''}, ${data.region || ''} (${data.country || ''})`;
+        }
+      } catch (err1) {
+        console.warn('ipwho.is failed, trying fallback...', err1);
+      }
+
+      if (lat === null) {
+        const res2 = await fetch('https://get.geojs.io/v1/ip/geo.json');
+        const data2 = await res2.json();
+        if (data2 && data2.latitude && data2.longitude) {
+          lat = parseFloat(data2.latitude);
+          lng = parseFloat(data2.longitude);
+          label = `${data2.city || ''}, ${data2.country || ''}`;
+        }
+      }
+
+      this.showLoading(false);
+
+      if (lat !== null && lng !== null) {
+        this.map.flyTo([lat, lng], 13);
+        L.circleMarker([lat, lng], {
+          radius: 11,
+          fillColor: '#0284c7',
+          color: '#ffffff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.85
+        }).addTo(this.map).bindPopup(`<strong>Lokasi Perkiraan (Jaringan/IP)</strong><br>${label}<br><small style="color:#64748b;">Akurasi tingkat kota/wilayah</small>`).openPopup();
+        this.closeGpsHelpModal();
+      } else {
+        alert('Tidak dapat memperkirakan lokasi dari jaringan internet.');
+      }
+    } catch (e) {
+      this.showLoading(false);
+      console.error('IP Geolocation error:', e);
+      alert('Tidak dapat menghubungkan ke layanan lokasi jaringan.');
+    }
+  }
+
   fitRouteBounds() {
-    const polylineBounds = this.routePolyline.getBounds();
-    if (polylineBounds.isValid()) {
-      this.map.fitBounds(polylineBounds, { padding: [50, 50] });
-    } else if (this.landmarks.length > 0) {
-      const group = L.featureGroup(this.landmarks.map(l => l.marker));
-      this.map.fitBounds(group.getBounds(), { padding: [50, 50] });
+    const group = [];
+    this.routes.forEach(r => {
+      if (r.visible && r.polyline && r.polyline.getLatLngs().length > 0) {
+        group.push(r.polyline);
+      }
+    });
+    this.landmarks.forEach(l => {
+      if (l.marker) group.push(l.marker);
+    });
+
+    if (group.length > 0) {
+      const fg = L.featureGroup(group);
+      this.map.fitBounds(fg.getBounds(), { padding: [50, 50] });
     }
   }
 
@@ -1574,8 +3396,8 @@ class StrideMapApp {
   }
 
   exportGPX() {
-    const routeCoords = this.routePolyline.getLatLngs();
-    if (routeCoords.length === 0 && this.landmarks.length === 0) {
+    const visibleRoutesWithCoords = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length > 0);
+    if (visibleRoutesWithCoords.length === 0 && this.landmarks.length === 0) {
       alert('Silakan buat jalur lari atau tambahkan landmark terlebih dahulu!');
       return;
     }
@@ -1608,20 +3430,22 @@ class StrideMapApp {
   </wpt>\n`;
     });
 
-    if (routeCoords.length > 0) {
+    visibleRoutesWithCoords.forEach(route => {
+      const routeCoords = route.polyline.getLatLngs();
       gpx += `  <trk>
-    <name>${title}</name>
+    <name>${(route.name || title).replace(/[<>&'"]/g, '')}</name>
     <type>Running</type>
     <trkseg>\n`;
 
       let cumulativeSeconds = 0;
       const baseTime = Date.now();
+      const pSec = route.paceSeconds || 360;
 
       for (let i = 0; i < routeCoords.length; i++) {
         const pt = routeCoords[i];
         if (i > 0) {
           const segDistKm = routeCoords[i - 1].distanceTo(pt) / 1000;
-          cumulativeSeconds += segDistKm * this.paceSeconds;
+          cumulativeSeconds += segDistKm * pSec;
         }
         const ptTime = new Date(baseTime + cumulativeSeconds * 1000).toISOString();
         gpx += `      <trkpt lat="${pt.lat.toFixed(6)}" lon="${pt.lng.toFixed(6)}">
@@ -1631,7 +3455,7 @@ class StrideMapApp {
 
       gpx += `    </trkseg>
   </trk>\n`;
-    }
+    });
 
     gpx += `</gpx>`;
 
@@ -1639,15 +3463,14 @@ class StrideMapApp {
   }
 
   exportKML() {
-    const routeCoords = this.routePolyline.getLatLngs();
-    if (routeCoords.length === 0 && this.landmarks.length === 0) {
+    const visibleRoutesWithCoords = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length > 0);
+    if (visibleRoutesWithCoords.length === 0 && this.landmarks.length === 0) {
       alert('Silakan buat jalur lari atau tambahkan landmark terlebih dahulu!');
       return;
     }
 
     const title = (this.routeTitleInput.value.trim() || 'Running Route').replace(/[<>&'"]/g, '');
 
-    // KML Style definitions compatible with Google My Maps & Google Earth
     const kmlIconMap = {
       km: 'http://maps.google.com/mapfiles/kml/paddle/grn-circle.png',
       water: 'http://maps.google.com/mapfiles/kml/paddle/blu-circle.png',
@@ -1662,13 +3485,23 @@ class StrideMapApp {
       custom: 'http://maps.google.com/mapfiles/kml/paddle/red-circle.png'
     };
 
-    let styleDefinitions = `
-    <Style id="routeStyle">
+    let styleDefinitions = '';
+
+    visibleRoutesWithCoords.forEach(r => {
+      const hex = r.color.replace('#', '');
+      const red = hex.substr(0, 2);
+      const green = hex.substr(2, 2);
+      const blue = hex.substr(4, 2);
+      const kmlColor = `ff${blue}${green}${red}`;
+
+      styleDefinitions += `
+    <Style id="routeStyle_${r.id}">
       <LineStyle>
-        <color>ff024cfc</color>
+        <color>${kmlColor}</color>
         <width>6</width>
       </LineStyle>
     </Style>`;
+    });
 
     Object.keys(kmlIconMap).forEach(key => {
       styleDefinitions += `
@@ -1693,32 +3526,6 @@ ${styleDefinitions}\n`;
       const config = LANDMARK_TYPES[l.type] || LANDMARK_TYPES.custom;
       const cleanName = (l.name || config.label).replace(/[<>&'"]/g, '');
       let cleanDesc = (l.desc || '').replace(/[<>&'"]/g, '');
-
-      // Keterangan waktu pelari (Start, Finish, Loop, atau Landmark estimasi)
-      if (l.type === 'start') {
-        const timeInfo = `Waktu Start: Pukul ${this.startTime}`;
-        cleanDesc = cleanDesc ? `${cleanDesc} | ${timeInfo}` : timeInfo;
-      } else if (l.type === 'start_finish') {
-        const totalKm = this.calculateTotalDistance() / 1000;
-        const finishClock = totalKm > 0 ? this.calculateEstimatedTimeAtDistance(totalKm) : this.startTime;
-        const timeInfo = `Waktu: Start ${this.startTime} ➔ Finish ${finishClock} (Total: ${totalKm.toFixed(2)} km)`;
-        cleanDesc = cleanDesc ? `${cleanDesc} | ${timeInfo}` : timeInfo;
-      } else if (l.type === 'finish') {
-        const totalKm = this.calculateTotalDistance() / 1000;
-        const finishClock = totalKm > 0 ? this.calculateEstimatedTimeAtDistance(totalKm) : '-';
-        const timeInfo = `Waktu Finish: Pukul ${finishClock} (Total Jarak: ${totalKm.toFixed(2)} km)`;
-        cleanDesc = cleanDesc ? `${cleanDesc} | ${timeInfo}` : timeInfo;
-      } else if (l.showTimeEstimate) {
-        const distKm = this.getDistanceFromStartAlongPolyline(L.latLng(l.lat, l.lng));
-        if (distKm !== null) {
-          const estClock = this.calculateEstimatedTimeAtDistance(distKm);
-          if (estClock) {
-            const timeInfo = `Estimasi Pelari: Pukul ${estClock} (Jarak: ${distKm.toFixed(2)} km dari Start @ Pace ${Math.floor(this.paceSeconds / 60)}:${(this.paceSeconds % 60).toString().padStart(2, '0')}/km)`;
-            cleanDesc = cleanDesc ? `${cleanDesc} | ${timeInfo}` : timeInfo;
-          }
-        }
-      }
-
       const styleId = kmlIconMap[l.type] ? `icon_${l.type}` : 'icon_custom';
 
       kml += `    <Placemark>
@@ -1731,11 +3538,12 @@ ${styleDefinitions}\n`;
     </Placemark>\n`;
     });
 
-    if (routeCoords.length > 0) {
-      const coordStr = routeCoords.map(pt => `${pt.lng.toFixed(6)},${pt.lat.toFixed(6)},0`).join(' ');
+    visibleRoutesWithCoords.forEach(r => {
+      const coords = r.polyline.getLatLngs();
+      const coordStr = coords.map(pt => `${pt.lng.toFixed(6)},${pt.lat.toFixed(6)},0`).join(' ');
       kml += `    <Placemark>
-      <name>${title} (Track Lari)</name>
-      <styleUrl>#routeStyle</styleUrl>
+      <name>${r.name}</name>
+      <styleUrl>#routeStyle_${r.id}</styleUrl>
       <LineString>
         <tessellate>1</tessellate>
         <coordinates>
@@ -1743,7 +3551,7 @@ ${styleDefinitions}\n`;
         </coordinates>
       </LineString>
     </Placemark>\n`;
-    }
+    });
 
     kml += `  </Document>
 </kml>`;
