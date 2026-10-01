@@ -2828,8 +2828,8 @@ body.resizing-sidebar #map {
   margin-top: -19px;
   margin-left: -19px;
   border-radius: 50%;
-  border: 2px dashed var(--pace-color, #0284c7);
-  background: rgba(2, 132, 199, 0.12);
+  border: 2px dashed var(--runner-color, #0284c7);
+  background: rgba(0, 0, 0, 0.05);
   animation: runnerHaloSpin 4s linear infinite;
   pointer-events: none;
 }
@@ -2845,7 +2845,7 @@ body.resizing-sidebar #map {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: var(--pace-color, #0284c7);
+  background: var(--runner-color, #0284c7);
   color: #ffffff;
   display: flex;
   align-items: center;
