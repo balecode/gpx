@@ -22,15 +22,15 @@ const LANDMARK_TYPES = {
   checkpoint: { label: 'Check Point', icon: 'fa-stopwatch', color: '#f59e0b', sym: 'Checkpoint' },
   toilet: { label: 'Toilet / Restroom', icon: 'fa-restroom', color: '#64748b', sym: 'Restroom' },
   photo: { label: 'Photo Spot', icon: 'fa-camera', color: '#8b5cf6', sym: 'Scenic Area' },
-  hill: { label: 'Hill / Tanjakan', icon: 'fa-mountain', color: '#ea580c', sym: 'Summit' },
-  custom: { label: 'Landmark Khusus', icon: 'fa-star', color: '#e11d48', sym: 'Pin, Red' }
+  hill: { label: 'Hill / Incline', icon: 'fa-mountain', color: '#ea580c', sym: 'Summit' },
+  custom: { label: 'Custom Landmark', icon: 'fa-star', color: '#e11d48', sym: 'Pin, Red' }
 };
 
 const ROUTE_PRESETS = {
-  '5k': { name: 'Rute 5K', color: '#0284c7', startTime: '06:30', paceSeconds: 360 },
-  '10k': { name: 'Rute 10K', color: '#10b981', startTime: '06:00', paceSeconds: 390 },
-  '21k': { name: 'Rute 21K (HM)', color: '#f59e0b', startTime: '05:30', paceSeconds: 360 },
-  '42k': { name: 'Rute 42K (FM)', color: '#8b5cf6', startTime: '05:00', paceSeconds: 360 }
+  '5k': { name: '5K', color: '#0284c7', startTime: '06:30', paceSeconds: 360 },
+  '10k': { name: '10K', color: '#10b981', startTime: '06:00', paceSeconds: 390 },
+  '21k': { name: '21K', color: '#f59e0b', startTime: '05:30', paceSeconds: 360 },
+  '42k': { name: '42K', color: '#8b5cf6', startTime: '05:00', paceSeconds: 360 }
 };
 
 const COLOR_PALETTE = ['#0284c7', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#fc4c02', '#06b6d4', '#84cc16'];
@@ -435,6 +435,16 @@ class StrideMapApp {
     if (this.liveTimeSlider) {
       this.liveTimeSlider.addEventListener('input', (e) => {
         this.liveCurrentSeconds = parseInt(e.target.value);
+        if (!this.liveSimulationRunning && this.liveSimulationStatus) {
+          const max = parseInt(this.liveTimeSlider.max) || 86400;
+          if (this.liveCurrentSeconds >= max) {
+            this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-flag-checkered"></i> FINISHED';
+            this.liveSimulationStatus.style.background = 'rgba(16, 185, 129, 0.25)';
+          } else {
+            this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-pause"></i> PAUSED';
+            this.liveSimulationStatus.style.background = 'rgba(100, 116, 139, 0.3)';
+          }
+        }
         this.updateLiveSimulation();
       });
     }
@@ -603,7 +613,7 @@ class StrideMapApp {
       const updateFullScreenIcon = () => {
         const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement);
         fullScreenBtn.innerHTML = isFS ? '<i class="fa-solid fa-compress"></i>' : '<i class="fa-solid fa-expand"></i>';
-        fullScreenBtn.title = isFS ? 'Keluar dari Layar Penuh' : 'Layar Penuh / Full Screen (Sembunyikan URL & Bar Browser)';
+        fullScreenBtn.title = isFS ? 'Exit Full Screen' : 'Full Screen Mode';
         setTimeout(() => this.map.invalidateSize(), 200);
       };
 
@@ -739,14 +749,14 @@ class StrideMapApp {
     if (this.routingModeBadge) {
       this.routingModeBadge.className = `routing-badge ${isAuto ? 'auto' : 'manual'}`;
       this.routingModeBadge.innerHTML = isAuto
-        ? '<i class="fa-solid fa-magnet"></i> Auto Jalan'
-        : '<i class="fa-solid fa-pen-ruler"></i> Manual Bebas';
+        ? '<i class="fa-solid fa-magnet"></i> Auto Roads'
+        : '<i class="fa-solid fa-pen-ruler"></i> Freehand Manual';
     }
 
     if (this.routingModeHintText) {
       this.routingModeHintText.innerHTML = isAuto
-        ? '<i class="fa-solid fa-circle-check text-sky"></i> <strong>Mode Auto:</strong> Titik baru otomatis mengikuti lekukan jalan.'
-        : '<i class="fa-solid fa-crosshairs text-orange"></i> <strong>Mode Manual:</strong> Titik baru ditarik garis lurus bebas (cocok untuk memotong taman, gang, atau lawan arah).';
+        ? '<i class="fa-solid fa-circle-check text-sky"></i> <strong>Auto Mode:</strong> New points automatically follow road geometry.'
+        : '<i class="fa-solid fa-crosshairs text-orange"></i> <strong>Manual Mode:</strong> New points are connected with straight lines (ideal for parks, alleys, or contra-flow).';
     }
 
     const r = this.getActiveRoute();
@@ -795,7 +805,7 @@ class StrideMapApp {
       
       this.searchResults.innerHTML = '';
       if (!data || data.length === 0) {
-        this.searchResults.innerHTML = '<div class="search-result-item"><span>Tidak ditemukan lokasi.</span></div>';
+        this.searchResults.innerHTML = '<div class="search-result-item"><span>No locations found.</span></div>';
         this.searchResults.style.display = 'block';
         return;
       }
@@ -894,7 +904,7 @@ class StrideMapApp {
         html: `
           <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
             <div class="loop-snap-recommendation-badge">
-              <i class="fa-solid fa-link"></i> Klik untuk Gabung Loop (Start & Finish)
+              <i class="fa-solid fa-link"></i> Click to Close Loop (Start & Finish)
             </div>
             <div class="landmark-map-pin snap-loop-pulse" style="background-color: #7c3aed; width: 40px; height: 40px; border: 3px solid #ffffff;">
               <i class="fa-solid fa-flag-checkered" style="font-size: 16px;"></i>
@@ -951,7 +961,7 @@ class StrideMapApp {
           lng: startPt.lng,
           type: 'start',
           name: `Start${routePrefix}`,
-          desc: `Titik awal ${route.name}`,
+          desc: `Start point ${route.name}`,
           isAuto: true,
           routeId: route.id
         });
@@ -977,7 +987,7 @@ class StrideMapApp {
           lng: startPt.lng,
           type: 'start',
           name: `Start${routePrefix}`,
-          desc: `Titik awal ${route.name}`,
+          desc: `Start point ${route.name}`,
           isAuto: true,
           routeId: route.id
         });
@@ -987,7 +997,7 @@ class StrideMapApp {
           lng: endPt.lng,
           type: 'finish',
           name: `Finish${routePrefix}`,
-          desc: `Titik finish ${route.name}`,
+          desc: `Finish line ${route.name}`,
           isAuto: true,
           routeId: route.id
         });
@@ -1203,9 +1213,16 @@ class StrideMapApp {
         this.routes = [];
 
         data.routes.forEach(savedR => {
+          let cleanName = (savedR.name || '5K').trim();
+          if (/^(rute|route)\s*5k$/i.test(cleanName)) cleanName = '5K';
+          else if (/^(rute|route)\s*10k$/i.test(cleanName)) cleanName = '10K';
+          else if (/^(rute|route)\s*21k(\s*\(hm\))?$/i.test(cleanName) || /^21k\s*\(hm\)$/i.test(cleanName)) cleanName = '21K';
+          else if (/^(rute|route)\s*42k(\s*\(fm\))?$/i.test(cleanName) || /^42k\s*\(fm\)$/i.test(cleanName)) cleanName = '42K';
+          else if (/^(rute|route)\s+(\d+k)$/i.test(cleanName)) cleanName = cleanName.replace(/^(rute|route)\s+/i, '').toUpperCase();
+
           const rObj = this.createRoute({
             id: savedR.id,
-            name: savedR.name,
+            name: cleanName,
             color: savedR.color,
             visible: savedR.visible !== undefined ? savedR.visible : true,
             paceSeconds: savedR.paceSeconds || 360,
@@ -1445,7 +1462,7 @@ class StrideMapApp {
       return;
     }
 
-    this.showLoading(true, 'Menghitung ulang rute...');
+    this.showLoading(true, 'Recalculating route...');
     try {
       for (let i = 1; i < this.waypoints.length; i++) {
         const pt = this.waypoints[i];
@@ -1520,12 +1537,12 @@ class StrideMapApp {
         draggable: true
       }).addTo(this.map);
 
-      // Tooltip penjelas mode segmen
+      // Tooltip explaining segment connection mode
       if (idx > 0) {
-        const segDesc = pt.mode === 'manual' ? 'Manual (Garis Lurus Bebas)' : 'Auto (Ikuti Jalan)';
-        marker.bindTooltip(`Titik ${idx + 1} • Sambungan: ${segDesc}`, { direction: 'top', offset: [0, -10] });
+        const segDesc = pt.mode === 'manual' ? 'Manual (Direct Straight Line)' : 'Auto (Road Snapped)';
+        marker.bindTooltip(`Point ${idx + 1} • Connection: ${segDesc}`, { direction: 'top', offset: [0, -10] });
       } else {
-        marker.bindTooltip('Titik Start (Awal Rute)', { direction: 'top', offset: [0, -10] });
+        marker.bindTooltip('Start Point (Route Start)', { direction: 'top', offset: [0, -10] });
       }
 
       // Interaksi klik & hover pada titik Start rute aktif untuk memicu rekomendasi Loop
@@ -1580,7 +1597,7 @@ class StrideMapApp {
   }
 
   resetAll() {
-    if (!confirm('Apakah Anda yakin ingin mereset seluruh rute dan landmark?')) return;
+    if (!confirm('Are you sure you want to reset all routes and landmarks?')) return;
     this.saveStateToHistory();
     this.waypoints = [];
     this.routePolyline.setLatLngs([]);
@@ -1603,24 +1620,24 @@ class StrideMapApp {
     if (type === 'km') {
       const kmCount = this.landmarks.filter(l => l.type === 'km').length + 1;
       this.landmarkNameInput.value = `KM ${kmCount}`;
-      this.landmarkDescInput.value = `Titik kilometer ke-${kmCount}`;
+      this.landmarkDescInput.value = `Kilometer marker ${kmCount}`;
     } else if (type === 'cheering') {
       const cheerCount = this.landmarks.filter(l => l.type === 'cheering').length + 1;
       this.landmarkNameInput.value = `Cheering Area #${cheerCount}`;
-      this.landmarkDescInput.value = 'Titik kumpul supporter & penyemangat lari';
+      this.landmarkDescInput.value = 'Supporter & cheering zone';
     } else if (type === 'water') {
       const waterCount = this.landmarks.filter(l => l.type === 'water').length + 1;
       this.landmarkNameInput.value = `Water Station #${waterCount}`;
-      this.landmarkDescInput.value = 'Tersedia air mineral & isotonic';
+      this.landmarkDescInput.value = 'Water & electrolyte drinks available';
     } else if (type === 'start') {
       this.landmarkNameInput.value = 'Start Line';
-      this.landmarkDescInput.value = 'Titik mulai lari';
+      this.landmarkDescInput.value = 'Race start line';
     } else if (type === 'finish') {
       this.landmarkNameInput.value = 'Finish Line';
-      this.landmarkDescInput.value = 'Garis finish rute lari';
+      this.landmarkDescInput.value = 'Race finish line';
     } else if (type === 'start_finish') {
       this.landmarkNameInput.value = 'Start & Finish';
-      this.landmarkDescInput.value = 'Titik Start dan Finish jalur lari';
+      this.landmarkDescInput.value = 'Start & Finish line';
     } else {
       const count = this.landmarks.filter(l => l.type === type).length + 1;
       this.landmarkNameInput.value = `${config.label} #${count}`;
@@ -1632,14 +1649,14 @@ class StrideMapApp {
   openLandmarkModal(latlng) {
     this.pendingLandmarkLatLng = latlng;
     
-    // Set nama awal sesuai kategori yang sedang terpilih
+    // Set initial name based on selected category
     this.updateLandmarkNameForType(this.selectedLandmarkType);
     
     document.querySelectorAll('#modalBadgePicker .badge-btn').forEach(b => {
       b.classList.toggle('active', b.getAttribute('data-type') === this.selectedLandmarkType);
     });
 
-    // Update keterangan estimasi jam pelari di modal
+    // Update runner estimated arrival time in modal
     if (this.modalTimeEstimateHint) {
       const distKm = this.getDistanceFromStartAlongPolyline(latlng);
       if (distKm !== null && this.waypoints.length >= 2) {
@@ -1648,10 +1665,10 @@ class StrideMapApp {
         const secPace = (this.paceSeconds % 60).toString().padStart(2, '0');
         this.modalTimeEstimateHint.innerHTML = `
           <i class="fa-solid fa-person-running" style="color: #fc4c02;"></i> 
-          Estimasi: Pelari tiba di titik ini sekitar pukul <strong>${estClock}</strong> (Jarak: <strong>${distKm.toFixed(2)} km</strong> dari Start jam ${this.startTime} @ Pace ${minPace}:${secPace}/km).
+          Estimated: Runners arrive at approximately <strong>${estClock}</strong> (Distance: <strong>${distKm.toFixed(2)} km</strong> from Start at ${this.startTime} @ Pace ${minPace}:${secPace}/km).
         `;
       } else {
-        this.modalTimeEstimateHint.textContent = `Dihitung otomatis dari Start (${this.startTime}) berdasarkan Target Pace Anda saat rute terhubung.`;
+        this.modalTimeEstimateHint.textContent = `Calculated automatically from Start (${this.startTime}) based on your Target Pace when route is connected.`;
       }
     }
 
@@ -1746,7 +1763,7 @@ class StrideMapApp {
         if (distKm !== null) {
           const estClock = this.calculateEstimatedTimeAtDistance(distKm);
           if (estClock) {
-            timeBadgeHtml = `<div class="landmark-time-sidebar-tag"><i class="fa-regular fa-clock"></i> Pukul ${estClock} (${distKm.toFixed(2)} km)</div>`;
+            timeBadgeHtml = `<div class="landmark-time-sidebar-tag"><i class="fa-regular fa-clock"></i> At ${estClock} (${distKm.toFixed(2)} km)</div>`;
           }
         }
       }
@@ -1763,10 +1780,10 @@ class StrideMapApp {
           </div>
         </div>
         <div class="landmark-actions">
-          <button class="mini-icon-btn focus-landmark-btn" title="Fokuskan di Peta">
+          <button class="mini-icon-btn focus-landmark-btn" title="Focus on Map">
             <i class="fa-solid fa-eye"></i>
           </button>
-          <button class="mini-icon-btn delete-landmark-btn" title="Hapus Landmark">
+          <button class="mini-icon-btn delete-landmark-btn" title="Delete Landmark">
             <i class="fa-solid fa-trash"></i>
           </button>
         </div>
@@ -1794,7 +1811,7 @@ class StrideMapApp {
 
   createRoute(options = {}) {
     const id = options.id || 'route_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 3);
-    const name = options.name || `Rute ${this.routes.length + 1}`;
+    const name = options.name || `Route ${this.routes.length + 1}`;
     const color = options.color || this.getNextRouteColor();
     const visible = options.visible !== undefined ? options.visible : true;
     const paceSeconds = options.paceSeconds || 360;
@@ -1855,7 +1872,7 @@ class StrideMapApp {
       const dist = this.getDistanceFromStartAlongPolyline(e.latlng, route);
       if (dist !== null) {
         poly.setTooltipContent(
-          `<span style="color: ${route.color}; font-weight: 700;">● ${route.name}</span>: ${dist.toFixed(2)} km dari Start`
+          `<span style="color: ${route.color}; font-weight: 700;">● ${route.name}</span>: ${dist.toFixed(2)} km from Start`
         );
       }
     });
@@ -1880,7 +1897,7 @@ class StrideMapApp {
   initDefaultRoute() {
     const def = this.createRoute({
       id: 'route_5k',
-      name: 'Rute 5K',
+      name: '5K',
       color: '#0284c7',
       visible: true,
       paceSeconds: 360,
@@ -2018,26 +2035,26 @@ class StrideMapApp {
 
       item.innerHTML = `
         <div class="route-item-left">
-          <input type="color" class="route-color-input" value="${route.color}" title="Klik untuk mengubah warna rute">
+          <input type="color" class="route-color-input" value="${route.color}" title="Click to change route color">
           <div class="route-info-group">
-            <span class="route-name-title" title="Klik untuk memilih rute ini (Double-click untuk ubah nama)">${route.name}</span>
+            <span class="route-name-title" title="Click to select this route (Double-click to rename)">${route.name}</span>
             <div class="route-meta-sub">
               <span class="route-dist-tag"><i class="fa-solid fa-route"></i> ${totalKm} km</span>
               <span>&bull;</span>
-              <div class="route-start-inline" title="Ubah jam start khusus rute ${route.name}">
+              <div class="route-start-inline" title="Change start time for route ${route.name}">
                 <i class="fa-regular fa-clock text-sky"></i>
                 <span class="route-start-label">Start:</span>
-                <input type="time" class="route-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Klik untuk mengubah jam start rute ${route.name}">
+                <input type="time" class="route-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Click to change start time for route ${route.name}">
               </div>
             </div>
           </div>
         </div>
         <div class="route-item-actions">
-          <button type="button" class="route-vis-btn ${route.visible ? 'visible' : ''}" title="${route.visible ? 'Sembunyikan Rute di Peta' : 'Tampilkan Rute di Peta'}">
+          <button type="button" class="route-vis-btn ${route.visible ? 'visible' : ''}" title="${route.visible ? 'Hide Route on Map' : 'Show Route on Map'}">
             <i class="fa-solid ${route.visible ? 'fa-eye' : 'fa-eye-slash'}"></i>
           </button>
           ${this.routes.length > 1 ? `
-          <button type="button" class="route-del-btn" title="Hapus Rute Ini">
+          <button type="button" class="route-del-btn" title="Delete This Route">
             <i class="fa-solid fa-trash-can"></i>
           </button>
           ` : ''}
@@ -2075,7 +2092,7 @@ class StrideMapApp {
       // Double-click untuk rename
       const nameTitle = item.querySelector('.route-name-title');
       nameTitle.addEventListener('dblclick', () => {
-        const newName = prompt('Ubah nama rute:', route.name);
+        const newName = prompt('Rename route:', route.name);
         if (newName && newName.trim()) {
           this.changeRouteName(route.id, newName.trim());
         }
@@ -2105,7 +2122,15 @@ class StrideMapApp {
     if (!config) return;
 
     // Jika sudah ada rute dengan preset nama ini, aktifkan
-    const existing = this.routes.find(r => r.name.toLowerCase() === config.name.toLowerCase());
+    const keyLower = presetKey.toLowerCase();
+    const existing = this.routes.find(r => {
+      const rName = (r.name || '').toLowerCase().trim();
+      return rName === config.name.toLowerCase() ||
+             rName === `route ${config.name.toLowerCase()}` ||
+             rName === `rute ${config.name.toLowerCase()}` ||
+             rName.startsWith(keyLower) ||
+             rName.startsWith(`rute ${keyLower}`);
+    });
     if (existing) {
       if (!existing.visible) {
         this.toggleRouteVisibility(existing.id);
@@ -2130,7 +2155,7 @@ class StrideMapApp {
   }
 
   addNewCustomRoute() {
-    const name = prompt('Masukkan nama rute baru (contoh: 15K Trail, Fun Run, dll):', `Rute ${this.routes.length + 1}`);
+    const name = prompt('Enter new route name (e.g. 15K, Trail, Fun Run):', `Route ${this.routes.length + 1}`);
     if (!name || !name.trim()) return;
 
     const newRoute = this.createRoute({
@@ -2181,14 +2206,14 @@ class StrideMapApp {
 
   deleteRoute(routeId) {
     if (this.routes.length <= 1) {
-      alert('Minimal harus ada 1 rute dalam sistem!');
+      alert('There must be at least 1 route in the system!');
       return;
     }
 
     const route = this.routes.find(r => r.id === routeId);
     if (!route) return;
 
-    if (!confirm(`Hapus rute "${route.name}" beserta seluruh jalurnya?`)) return;
+    if (!confirm(`Delete route "${route.name}" and all its points?`)) return;
 
     if (route.polyline) {
       this.map.removeLayer(route.polyline);
@@ -2225,6 +2250,9 @@ class StrideMapApp {
 
     if (this.paceInspectState) {
       this.recalculatePaceInspection();
+    }
+    if (this.currentMode === 'live') {
+      this.updateLiveSimulation();
     }
     this.saveToStorage();
   }
@@ -2316,7 +2344,7 @@ class StrideMapApp {
   handlePaceCheckClick(latlng) {
     const visibleRoutes = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length >= 2);
     if (visibleRoutes.length === 0) {
-      alert('Silakan buat rute lari terlebih dahulu sebelum menganalisis pace titik!');
+      alert('Please create a running route first before inspecting pace!');
       return;
     }
 
@@ -2347,7 +2375,7 @@ class StrideMapApp {
       const icon = L.divIcon({
         className: 'landmark-div-icon-wrapper',
         html: `
-          <div class="pace-inspect-pin-wrapper" title="Tarik / geser untuk memindahkan titik sepanjang rute">
+          <div class="pace-inspect-pin-wrapper" title="Drag to move point along route">
             <div class="pace-inspect-radar"></div>
             <div class="pace-inspect-pin">
               <i class="fa-solid fa-stopwatch"></i>
@@ -2416,7 +2444,7 @@ class StrideMapApp {
 
     const visibleRoutes = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length >= 2);
     if (visibleRoutes.length === 0) {
-      multiListContainer.innerHTML = '<div class="empty-state" style="padding: 14px;"><i class="fa-solid fa-eye-slash"></i><span>Tidak ada rute terlihat dengan jalur minimal 2 titik.</span></div>';
+      multiListContainer.innerHTML = '<div class="empty-state" style="padding: 14px;"><i class="fa-solid fa-eye-slash"></i><span>No visible routes with at least 2 points.</span></div>';
       return;
     }
 
@@ -2434,7 +2462,7 @@ class StrideMapApp {
         tooltipRows.push(`
           <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
             <span><span style="color: ${route.color};">●</span> <strong>${route.name}:</strong></span>
-            <span style="color: #f87171; font-weight: 600;"><i class="fa-solid fa-ban"></i> Tidak lewat</span>
+            <span style="color: #f87171; font-weight: 600;"><i class="fa-solid fa-ban"></i> Not on route</span>
           </div>
         `);
 
@@ -2449,11 +2477,11 @@ class StrideMapApp {
               <strong>${route.name}</strong>
               <span class="pmr-total-tag">Total: ${totalKm.toFixed(2)} km</span>
             </div>
-            <span class="prc-prox-badge off-track"><i class="fa-solid fa-ban"></i> Tidak Melalui Jalur Ini</span>
+            <span class="prc-prox-badge off-track"><i class="fa-solid fa-ban"></i> Does Not Cross Route</span>
           </div>
           <div class="pmr-offroute-notice">
             <i class="fa-solid fa-circle-exclamation"></i>
-            <span>Rute <strong>${route.name}</strong> tidak melintasi titik ini (jarak ke jalur terdekat ~${proj.distToRouteMeters >= 1000 ? (proj.distToRouteMeters / 1000).toFixed(2) + ' km' : Math.round(proj.distToRouteMeters) + ' m'}).</span>
+            <span>Route <strong>${route.name}</strong> does not cross this point (distance to nearest path ~${proj.distToRouteMeters >= 1000 ? (proj.distToRouteMeters / 1000).toFixed(2) + ' km' : Math.round(proj.distToRouteMeters) + ' m'}).</span>
           </div>
         `;
         multiListContainer.appendChild(card);
@@ -2463,12 +2491,56 @@ class StrideMapApp {
       const distKm = proj.distanceKm;
       const startStr = route.startTime || '06:00';
       const startSeconds = parseToSeconds(startStr);
+      const proximityHtml = `<span class="prc-prox-badge on-track"><i class="fa-solid fa-circle-check"></i> On Route</span>`;
 
-      let elapsedSeconds = targetSeconds - startSeconds;
-      if (elapsedSeconds < 0) {
-        elapsedSeconds += 24 * 3600;
+      // KASUS 1: Belum Start (Target waktu cek masih sebelum jam start rute ini)
+      if (targetSeconds < startSeconds) {
+        tooltipRows.push(`
+          <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
+            <span><span style="color: ${route.color};">●</span> <strong>${route.name}:</strong> ${distKm.toFixed(2)} km</span>
+            <span style="color: #94a3b8; font-weight: 600;"><i class="fa-regular fa-clock"></i> Not started (Start ${startStr})</span>
+          </div>
+        `);
+
+        const card = document.createElement('div');
+        card.className = 'pace-multi-route-card';
+        card.style.borderLeftColor = '#64748b';
+        card.innerHTML = `
+          <div class="pmr-header">
+            <div class="pmr-title" style="color: ${route.color};">
+              <span class="pmr-dot" style="background-color: ${route.color};"></span>
+              <strong>${route.name}</strong>
+              <span class="pmr-total-tag">Total: ${totalKm.toFixed(2)} km</span>
+            </div>
+            ${proximityHtml}
+          </div>
+          <div class="pmr-stats-row">
+            <div class="pmr-col">
+              <span class="pmr-lbl">Distance from Start</span>
+              <span class="pmr-val">${distKm.toFixed(2)} km</span>
+            </div>
+            <div class="pmr-col">
+              <span class="pmr-lbl">Scheduled Start</span>
+              <span class="pmr-val" style="color: #38bdf8; font-weight: 700;"><i class="fa-regular fa-clock"></i> ${startStr}</span>
+            </div>
+          </div>
+          <div class="pmr-pace-box" style="background: rgba(15, 23, 42, 0.95); border: 1px dashed rgba(148, 163, 184, 0.4);">
+            <div class="pmr-pace-val-group">
+              <span class="pmr-pace-label">Info:</span>
+              <span class="pmr-pace-num" style="color: #38bdf8; font-size: 1.05rem; font-family: inherit;">Not Started</span>
+            </div>
+            <div class="pmr-pace-sub">
+              <span style="color: #94a3b8;"><i class="fa-regular fa-clock" style="color: #38bdf8;"></i> Starts at <strong>${startStr}</strong> (Target: ${targetStr})</span>
+              <span class="pmr-category-pill" style="color: #38bdf8; border-color: #38bdf8;">Not Started</span>
+            </div>
+          </div>
+        `;
+        multiListContainer.appendChild(card);
+        return;
       }
 
+      // KASUS 2 & 3: Waktu target sudah dimulai / berjalan
+      const elapsedSeconds = targetSeconds - startSeconds;
       const elpHours = Math.floor(elapsedSeconds / 3600);
       const elpMins = Math.floor((elapsedSeconds % 3600) / 60);
       const elpSecs = elapsedSeconds % 60;
@@ -2478,18 +2550,68 @@ class StrideMapApp {
         elpSecs.toString().padStart(2, '0')
       ].join(':');
 
-      let paceStr = '--:--';
-      let speedStr = '0.0 km/jam';
-      let category = 'Titik Start';
-      let catColor = '#64748b';
       let paceSeconds = 0;
+      if (distKm > 0.005) {
+        paceSeconds = Math.round(elapsedSeconds / distKm);
+      }
+
+      // KASUS 2: Pace di atas 10:00/km (600 detik) atau garis start yang sudah lewat -> Runners sudah lewat!
+      if (paceSeconds > 600 || (distKm <= 0.005 && elapsedSeconds > 300)) {
+        tooltipRows.push(`
+          <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
+            <span><span style="color: ${route.color};">●</span> <strong>${route.name}:</strong> ${distKm.toFixed(2)} km</span>
+            <span style="color: #fbbf24; font-weight: 600;"><i class="fa-solid fa-person-walking-arrow-right"></i> Runners passed by</span>
+          </div>
+        `);
+
+        const card = document.createElement('div');
+        card.className = 'pace-multi-route-card';
+        card.style.borderLeftColor = '#f59e0b';
+        card.innerHTML = `
+          <div class="pmr-header">
+            <div class="pmr-title" style="color: ${route.color};">
+              <span class="pmr-dot" style="background-color: ${route.color};"></span>
+              <strong>${route.name}</strong>
+              <span class="pmr-total-tag">Total: ${totalKm.toFixed(2)} km</span>
+            </div>
+            ${proximityHtml}
+          </div>
+          <div class="pmr-stats-row">
+            <div class="pmr-col">
+              <span class="pmr-lbl">Distance from Start</span>
+              <span class="pmr-val">${distKm.toFixed(2)} km</span>
+            </div>
+            <div class="pmr-col">
+              <span class="pmr-lbl">Start (${startStr}) ➔ Time</span>
+              <span class="pmr-val">${elapsedFormatted}</span>
+            </div>
+          </div>
+          <div class="pmr-pace-box" style="background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(245, 158, 11, 0.35);">
+            <div class="pmr-pace-val-group">
+              <span class="pmr-pace-label">Info:</span>
+              <span class="pmr-pace-num" style="color: #fbbf24; font-size: 1.05rem; font-family: inherit;">Runners Passed By</span>
+            </div>
+            <div class="pmr-pace-sub">
+              <span style="color: #fbbf24;"><i class="fa-solid fa-person-walking-arrow-right"></i> Runners already passed this point (Pace > 10:00)</span>
+              <span class="pmr-category-pill" style="color: #fbbf24; border-color: #fbbf24;">Passed By</span>
+            </div>
+          </div>
+        `;
+        multiListContainer.appendChild(card);
+        return;
+      }
+
+      // KASUS 3: Normal Pace (<= 10:00/km)
+      let paceStr = '--:--';
+      let speedStr = '0.0 km/h';
+      let category = 'Start Line';
+      let catColor = '#64748b';
 
       if (distKm > 0.005 && elapsedSeconds > 0) {
-        paceSeconds = Math.round(elapsedSeconds / distKm);
         const paceMin = Math.floor(paceSeconds / 60);
         const paceSec = paceSeconds % 60;
         paceStr = `${paceMin}:${paceSec.toString().padStart(2, '0')}`;
-        speedStr = `${(distKm / (elapsedSeconds / 3600)).toFixed(1)} km/jam`;
+        speedStr = `${(distKm / (elapsedSeconds / 3600)).toFixed(1)} km/h`;
 
         if (paceSeconds < 240) {
           category = 'Sprint / Elite';
@@ -2512,10 +2634,9 @@ class StrideMapApp {
         }
       } else if (distKm <= 0.005) {
         paceStr = '0:00';
-        category = 'Garis Start';
+        category = 'Start Line';
+        catColor = '#10b981';
       }
-
-      const proximityHtml = `<span class="prc-prox-badge on-track"><i class="fa-solid fa-circle-check"></i> Melintasi Jalur</span>`;
 
       tooltipRows.push(`
         <div style="display: flex; justify-content: space-between; gap: 10px; font-size: 11px; margin-top: 2px;">
@@ -2538,11 +2659,11 @@ class StrideMapApp {
         </div>
         <div class="pmr-stats-row">
           <div class="pmr-col">
-            <span class="pmr-lbl">Jarak dari Start</span>
+            <span class="pmr-lbl">Distance from Start</span>
             <span class="pmr-val">${distKm.toFixed(2)} km</span>
           </div>
           <div class="pmr-col">
-            <span class="pmr-lbl">Start (${startStr}) ➔ Waktu</span>
+            <span class="pmr-lbl">Start (${startStr}) ➔ Time</span>
             <span class="pmr-val">${elapsedFormatted}</span>
           </div>
         </div>
@@ -2568,7 +2689,7 @@ class StrideMapApp {
       this.paceInspectMarker.setTooltipContent(`
         <div style="min-width: 175px;">
           <div style="font-weight: 700; color: #ffffff; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; margin-bottom: 4px;">
-            <i class="fa-regular fa-clock" style="color: #38bdf8;"></i> Target Jam: ${targetStr}
+            <i class="fa-regular fa-clock" style="color: #38bdf8;"></i> Target Time: ${targetStr}
           </div>
           ${tooltipRows.join('')}
         </div>
@@ -2587,14 +2708,14 @@ class StrideMapApp {
       lng: this.paceInspectState.latlng.lng,
       type: 'checkpoint',
       name: `Checkpoint (${targetStr})`,
-      desc: `Titik pantau waktu pelari pukul ${targetStr}`,
+      desc: `Runner timing checkpoint at ${targetStr}`,
       isAuto: false,
       showTimeEstimate: false
     });
 
     this.renderLandmarkList();
     this.updateStats();
-    alert(`Landmark Checkpoint (Pukul ${targetStr}) berhasil disimpan!`);
+    alert(`Checkpoint Landmark (${targetStr}) saved successfully!`);
   }
 
   clearPaceInspection() {
@@ -2721,14 +2842,36 @@ class StrideMapApp {
 
   playLiveSimulation() {
     if (this.liveSimulationRunning) return;
+
+    if (this.liveTimeSlider) {
+      const max = parseInt(this.liveTimeSlider.max) || 86400;
+      if (this.liveCurrentSeconds >= max) {
+        // Jika simulasi sudah di ujung waktu, jangan loop otomatis
+        // Tampilkan info singkat agar user menggeser slider mundur terlebih dahulu
+        if (this.liveSimulationStatus) {
+          const prevHtml = this.liveSimulationStatus.innerHTML;
+          const prevBg = this.liveSimulationStatus.style.background;
+          this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-arrow-left"></i> SCRUB SLIDER FIRST';
+          this.liveSimulationStatus.style.background = 'rgba(245, 158, 11, 0.3)';
+          setTimeout(() => {
+            if (!this.liveSimulationRunning && this.liveCurrentSeconds >= max && this.liveSimulationStatus) {
+              this.liveSimulationStatus.innerHTML = prevHtml;
+              this.liveSimulationStatus.style.background = prevBg;
+            }
+          }, 1500);
+        }
+        return;
+      }
+    }
+
     this.liveSimulationRunning = true;
 
     if (this.livePlayPauseBtn) {
-      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Jeda';
+      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i> Pause';
       this.livePlayPauseBtn.classList.add('running');
     }
     if (this.liveSimulationStatus) {
-      this.liveSimulationStatus.innerHTML = '<span class="pulse-dot"></span> SIMULASI LIVE';
+      this.liveSimulationStatus.innerHTML = '<span class="pulse-dot"></span> LIVE SIMULATION';
       this.liveSimulationStatus.style.background = 'rgba(239, 68, 68, 0.2)';
     }
 
@@ -2745,7 +2888,15 @@ class StrideMapApp {
       if (this.liveTimeSlider) {
         const max = parseInt(this.liveTimeSlider.max) || 86400;
         if (this.liveCurrentSeconds >= max) {
-          this.liveCurrentSeconds = parseInt(this.liveTimeSlider.min) || 0;
+          this.liveCurrentSeconds = max;
+          this.liveTimeSlider.value = max;
+          this.updateLiveSimulation();
+          this.pauseLiveSimulation();
+          if (this.liveSimulationStatus) {
+            this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-flag-checkered"></i> FINISHED';
+            this.liveSimulationStatus.style.background = 'rgba(16, 185, 129, 0.25)';
+          }
+          return;
         }
       }
 
@@ -2761,19 +2912,30 @@ class StrideMapApp {
     }
 
     if (this.livePlayPauseBtn) {
-      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i> Mulai';
+      this.livePlayPauseBtn.innerHTML = '<i class="fa-solid fa-play"></i> Start';
       this.livePlayPauseBtn.classList.remove('running');
     }
     if (this.liveSimulationStatus) {
-      this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-pause"></i> JEDA';
+      this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-pause"></i> PAUSED';
       this.liveSimulationStatus.style.background = 'rgba(100, 116, 139, 0.3)';
     }
   }
 
   stepLiveSimulation(deltaSeconds) {
-    this.liveCurrentSeconds = Math.max(0, Math.min(86400, this.liveCurrentSeconds + deltaSeconds));
+    const min = this.liveTimeSlider ? (parseInt(this.liveTimeSlider.min) || 0) : 0;
+    const max = this.liveTimeSlider ? (parseInt(this.liveTimeSlider.max) || 86400) : 86400;
+    this.liveCurrentSeconds = Math.max(min, Math.min(max, this.liveCurrentSeconds + deltaSeconds));
     if (this.liveTimeSlider) {
       this.liveTimeSlider.value = this.liveCurrentSeconds;
+    }
+    if (!this.liveSimulationRunning && this.liveSimulationStatus) {
+      if (this.liveCurrentSeconds >= max) {
+        this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-flag-checkered"></i> FINISHED';
+        this.liveSimulationStatus.style.background = 'rgba(16, 185, 129, 0.25)';
+      } else {
+        this.liveSimulationStatus.innerHTML = '<i class="fa-solid fa-pause"></i> PAUSED';
+        this.liveSimulationStatus.style.background = 'rgba(100, 116, 139, 0.3)';
+      }
     }
     this.updateLiveSimulation();
   }
@@ -2849,7 +3011,7 @@ class StrideMapApp {
     if (!this.liveRunnerStatusList) return;
 
     if (visibleRoutes.length === 0) {
-      this.liveRunnerStatusList.innerHTML = '<div class="empty-state" style="padding: 10px;"><i class="fa-solid fa-eye-slash"></i><span>Tidak ada rute terlihat dengan jalur minimal 2 titik.</span></div>';
+      this.liveRunnerStatusList.innerHTML = '<div class="empty-state" style="padding: 10px;"><i class="fa-solid fa-eye-slash"></i><span>No visible routes with at least 2 points.</span></div>';
       this.clearLiveRunnerMarkers();
       return;
     }
@@ -2898,7 +3060,7 @@ class StrideMapApp {
         if (elapsedSeconds < 0) {
           isWaiting = true;
           runnerPos = coords[0];
-          statusText = `Menunggu Start (${route.startTime})`;
+          statusText = `Waiting for Start (${route.startTime})`;
         } else {
           distKm = elapsedSeconds / pItem.paceSeconds;
           if (distKm >= totalKm) {
@@ -2910,7 +3072,7 @@ class StrideMapApp {
             const fM = Math.floor((finishSecTotal % 3600) / 60);
             const fS = finishSecTotal % 60;
             finishClock = `${fH.toString().padStart(2, '0')}:${fM.toString().padStart(2, '0')}:${fS.toString().padStart(2, '0')}`;
-            statusText = `FINISH (${finishClock})`;
+            statusText = `FINISHED (${finishClock})`;
           } else {
             runnerPos = this.getLatLngAtDistance(coords, distKm);
             statusText = `KM ${distKm.toFixed(2)} / ${totalKm.toFixed(2)} km`;
@@ -2921,7 +3083,7 @@ class StrideMapApp {
 
         let marker = this.liveRunnerMarkers.get(key);
         const iconHtml = `
-          <div class="live-runner-marker-wrap ${isFinished ? 'finished' : ''} ${isWaiting ? 'waiting' : ''}" style="--pace-color: ${pItem.color};">
+          <div class="live-runner-marker-wrap ${isFinished ? 'finished' : ''} ${isWaiting ? 'waiting' : ''}" style="--runner-color: ${route.color}; --pace-color: ${route.color};">
             <div class="live-runner-halo"></div>
             <div class="live-runner-avatar">
               <i class="fa-solid ${isFinished ? 'fa-flag-checkered' : (isWaiting ? 'fa-hourglass-start' : 'fa-person-running')}"></i>
@@ -2943,11 +3105,12 @@ class StrideMapApp {
             <div style="font-weight: 800; color: ${route.color}; margin-bottom: 2px;">
               ● ${route.name} (Start: ${route.startTime})
             </div>
-            <div style="font-size: 12px; font-weight: 700; color: ${pItem.color};">
-              Pelari Pace ${pItem.pace} (${pItem.pace}:00/km &bull; ${pItem.speedKmH} km/jam)
+            <div style="font-size: 12px; font-weight: 700; color: ${route.color};">
+              <span style="background-color: ${route.color}; color: #ffffff; padding: 1px 5px; border-radius: 4px; font-weight: 800; font-size: 10px; margin-right: 4px;">P${pItem.pace}</span>
+              Pace ${pItem.pace} Runner (${pItem.pace}:00/km &bull; ${pItem.speedKmH} km/h)
             </div>
             <div style="color: #cbd5e1; margin-top: 3px;">
-              Posisi: <strong>${statusText}</strong>
+              Position: <strong>${statusText}</strong>
             </div>
           </div>
         `;
@@ -2974,7 +3137,7 @@ class StrideMapApp {
         runnersRowsHtml += `
           <div class="lrsc-runner-row">
             <div class="lrsc-runner-left">
-              <span class="lrsc-pace-badge" style="background-color: ${pItem.color};">P${pItem.pace}</span>
+              <span class="lrsc-pace-badge" style="background-color: ${route.color};">P${pItem.pace}</span>
               <span>${pItem.name}</span>
             </div>
             <div class="lrsc-runner-status ${isFinished ? 'finished' : (isWaiting ? 'waiting' : '')}">
@@ -2994,10 +3157,10 @@ class StrideMapApp {
         routeCard.innerHTML = `
           <div class="lrsc-header">
             <span class="lrsc-title" style="color: ${route.color};">● ${route.name} (${totalKm.toFixed(2)} km)</span>
-            <div class="lrsc-start-wrap" title="Ubah jam start rute ${route.name}">
+            <div class="lrsc-start-wrap" title="Change start time for route ${route.name}">
               <i class="fa-regular fa-clock"></i>
               <span style="font-size: 0.68rem; color: #64748b;">Start:</span>
-              <input type="time" class="lrsc-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Klik untuk mengubah jam start rute ini">
+              <input type="time" class="lrsc-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Click to change start time for this route">
             </div>
           </div>
           <div class="lrsc-runners-table">
@@ -3271,7 +3434,7 @@ class StrideMapApp {
       return;
     }
 
-    this.showLoading(true, 'Mendeteksi lokasi GPS...');
+    this.showLoading(true, 'Detecting GPS location...');
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         this.showLoading(false);
@@ -3286,7 +3449,7 @@ class StrideMapApp {
           weight: 3,
           opacity: 1,
           fillOpacity: 0.9
-        }).addTo(this.map).bindPopup('<strong>Lokasi Anda Saat Ini</strong><br>Akurasi GPS Tinggi').openPopup();
+        }).addTo(this.map).bindPopup('<strong>Your Current Location</strong><br>High GPS Accuracy').openPopup();
       },
       (err) => {
         this.showLoading(false);
@@ -3301,7 +3464,7 @@ class StrideMapApp {
         if (isSecureOriginErr) {
           this.openGpsHelpModal();
         } else {
-          alert('Gagal mendapatkan lokasi GPS: ' + (err.message || 'Izin ditolak'));
+          alert('Failed to get GPS location: ' + (err.message || 'Permission denied'));
         }
       },
       { enableHighAccuracy: true, timeout: 6000 }
@@ -3324,7 +3487,7 @@ class StrideMapApp {
   }
 
   async fetchIpLocation() {
-    this.showLoading(true, 'Mendeteksi perkiraan lokasi via jaringan (IP)...');
+    this.showLoading(true, 'Detecting approximate location via network (IP)...');
     try {
       let lat = null, lng = null, label = '';
       
@@ -3361,15 +3524,15 @@ class StrideMapApp {
           weight: 3,
           opacity: 1,
           fillOpacity: 0.85
-        }).addTo(this.map).bindPopup(`<strong>Lokasi Perkiraan (Jaringan/IP)</strong><br>${label}<br><small style="color:#64748b;">Akurasi tingkat kota/wilayah</small>`).openPopup();
+        }).addTo(this.map).bindPopup(`<strong>Estimated Location (Network/IP)</strong><br>${label}<br><small style="color:#64748b;">City/Regional Level Accuracy</small>`).openPopup();
         this.closeGpsHelpModal();
       } else {
-        alert('Tidak dapat memperkirakan lokasi dari jaringan internet.');
+        alert('Unable to approximate location from internet network.');
       }
     } catch (e) {
       this.showLoading(false);
       console.error('IP Geolocation error:', e);
-      alert('Tidak dapat menghubungkan ke layanan lokasi jaringan.');
+      alert('Unable to connect to network location service.');
     }
   }
 
@@ -3390,7 +3553,7 @@ class StrideMapApp {
     }
   }
 
-  showLoading(show, message = 'Memproses...') {
+  showLoading(show, message = 'Processing...') {
     this.loadingOverlay.style.display = show ? 'flex' : 'none';
     this.loadingText.textContent = message;
   }
@@ -3398,7 +3561,7 @@ class StrideMapApp {
   exportGPX() {
     const visibleRoutesWithCoords = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length > 0);
     if (visibleRoutesWithCoords.length === 0 && this.landmarks.length === 0) {
-      alert('Silakan buat jalur lari atau tambahkan landmark terlebih dahulu!');
+      alert('Please create a running route or add landmarks first!');
       return;
     }
 
@@ -3412,7 +3575,7 @@ class StrideMapApp {
   xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
     <name>${title}</name>
-    <desc>Dibuat dengan StrideMap - Running Route and Landmark Planner</desc>
+    <desc>Created with StrideMap - Running Route and Landmark Planner</desc>
     <time>${nowIso}</time>
   </metadata>\n`;
 
@@ -3465,7 +3628,7 @@ class StrideMapApp {
   exportKML() {
     const visibleRoutesWithCoords = this.routes.filter(r => r.visible && r.polyline && r.polyline.getLatLngs().length > 0);
     if (visibleRoutesWithCoords.length === 0 && this.landmarks.length === 0) {
-      alert('Silakan buat jalur lari atau tambahkan landmark terlebih dahulu!');
+      alert('Please create a running route or add landmarks first!');
       return;
     }
 
@@ -3643,9 +3806,9 @@ ${styleDefinitions}\n`;
         this.fitRouteBounds();
       }
 
-      alert('File GPX berhasil dimuat!');
+      alert('GPX file loaded successfully!');
     } catch (err) {
-      alert('Format GPX tidak valid: ' + err.message);
+      alert('Invalid GPX format: ' + err.message);
     }
   }
 
@@ -3698,9 +3861,9 @@ ${styleDefinitions}\n`;
           }
         }
       }
-      alert('File KML berhasil dimuat!');
+      alert('KML file loaded successfully!');
     } catch (err) {
-      alert('Format KML tidak valid: ' + err.message);
+      alert('Invalid KML format: ' + err.message);
     }
   }
 }
