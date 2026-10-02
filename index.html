@@ -319,7 +319,7 @@
             <span id="paceDisplay" class="pace-badge">6:00 /km</span>
           </div>
           <div class="pacing-slider-row">
-            <input type="range" id="paceRange" min="180" max="600" step="5" value="360">
+            <input type="range" id="paceRange" min="150" max="600" step="5" value="360">
           </div>
 
           <div class="timing-settings-grid">
@@ -330,7 +330,7 @@
             <div class="timing-field">
               <label for="paceMinutesInput"><i class="fa-solid fa-person-running"></i> Speed (Pace):</label>
               <div class="pace-inputs-inline">
-                <input type="number" id="paceMinInput" class="input-pace-num" min="3" max="15" value="6" placeholder="Min">
+                <input type="number" id="paceMinInput" class="input-pace-num" min="2" max="15" value="6" placeholder="Min">
                 <span class="pace-sep">:</span>
                 <input type="number" id="paceSecInput" class="input-pace-num" min="0" max="59" step="5" value="00" placeholder="Sec">
                 <span class="pace-suffix">/km</span>
@@ -372,16 +372,59 @@
         </button>
       </div>
 
-      <!-- Export / Import Section -->
-      <div class="section-card export-card">
-        <div class="section-label">Save & Share Route</div>
+      <!-- Project Title Input -->
+      <div class="section-card export-title-card">
+        <div class="section-label"><i class="fa-solid fa-pen-to-square"></i> Project & Route Title</div>
         <div class="input-group-row">
-          <input type="text" id="routeTitleInput" class="input-text" placeholder="Route Name (e.g. City Marathon Course)" value="My Running Route" />
+          <input type="text" id="routeTitleInput" class="input-text" placeholder="Project Name (e.g. City Marathon Course)" value="My Running Route" />
         </div>
+      </div>
+
+      <!-- Cross-Device Cloud Sync & Project Backup Card -->
+      <div class="section-card sync-card">
+        <div class="section-header-row">
+          <div class="section-label mb-0"><i class="fa-solid fa-cloud-arrow-up text-sky"></i> Cross-Device Sync & Backup</div>
+          <span class="badge-chip-cloud"><i class="fa-solid fa-arrows-rotate"></i> Multi-Device</span>
+        </div>
+        <p class="helper-text mt-1">
+          Save 100% of all route categories, colors, waypoints, start times, and landmarks to open on your phone or other computers.
+        </p>
+
+        <div class="sync-action-group">
+          <!-- Cloud Save Button -->
+          <button type="button" id="cloudShareBtn" class="btn btn-primary btn-large btn-cloud-save">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+            <div>
+              <strong>Save & Share to Cloud</strong>
+              <small>Get Share Link, Cloud Code & Mobile QR</small>
+            </div>
+          </button>
+
+          <!-- Cloud Load & Local File Buttons -->
+          <div class="btn-grid-2col mt-1">
+            <button type="button" id="cloudLoadModalBtn" class="btn btn-secondary" title="Load project using Cloud Sync Code or Link">
+              <i class="fa-solid fa-cloud-arrow-down"></i> Load from Cloud
+            </button>
+            <button type="button" id="saveProjectFileBtn" class="btn btn-outline" title="Save full project to .stridemap file">
+              <i class="fa-solid fa-floppy-disk"></i> Save File (.stridemap)
+            </button>
+          </div>
+
+          <!-- Open File Input -->
+          <label class="btn btn-ghost-border file-input-label mt-1">
+            <i class="fa-solid fa-folder-open"></i> Open Project File (.stridemap / .json)
+            <input type="file" id="projectFileInput" accept=".stridemap,.json" style="display: none;" />
+          </label>
+        </div>
+      </div>
+
+      <!-- GPS & Map App Export Section -->
+      <div class="section-card export-card">
+        <div class="section-label"><i class="fa-solid fa-file-export"></i> Export for Watches & Navigation</div>
         
         <div class="export-btn-group">
-          <button id="exportGpxBtn" class="btn btn-primary btn-large">
-            <i class="fa-solid fa-file-arrow-down"></i>
+          <button id="exportGpxBtn" class="btn btn-secondary btn-large">
+            <i class="fa-solid fa-file-arrow-down text-primary"></i>
             <div>
               <strong>Export GPX File</strong>
               <small>Garmin, Strava, Coros, Google My Maps</small>
@@ -389,16 +432,16 @@
           </button>
           
           <button id="exportKmlBtn" class="btn btn-outline" title="KML format for direct visualization in Google Earth & Maps">
-            <i class="fa-solid fa-earth-americas"></i> Export KML (Google Earth/Maps)
+            <i class="fa-solid fa-earth-americas text-sky"></i> Export KML (Google Earth/Maps)
           </button>
         </div>
 
         <div class="import-divider">
-          <span>or open an existing file</span>
+          <span>or import external GPS tracks</span>
         </div>
 
         <label class="btn btn-ghost-border file-input-label">
-          <i class="fa-solid fa-file-arrow-up"></i> Import GPX / KML File
+          <i class="fa-solid fa-file-arrow-up"></i> Import GPX / KML Track
           <input type="file" id="gpxFileInput" accept=".gpx,.kml" style="display: none;" />
         </label>
       </div>
@@ -456,7 +499,7 @@
 
       <!-- Modal Dialog for Add/Edit Landmark -->
       <div id="landmarkModal" class="modal-backdrop" style="display: none;">
-        <div class="modal-box">
+        <div class="modal-box landmark-modal-box">
           <div class="modal-header">
             <h3 id="modalTitle"><i class="fa-solid fa-location-dot"></i> Add Landmark</h3>
             <button class="modal-close" id="closeModalBtn">&times;</button>
@@ -555,6 +598,90 @@
           </div>
           <div class="modal-footer">
             <button type="button" id="closeGpsHelpModalBtn2" class="btn btn-secondary">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cloud Share & Sync Modal -->
+      <div id="cloudSyncModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box cloud-sync-modal-box">
+          <div class="modal-header">
+            <h3><i class="fa-solid fa-cloud-arrow-up text-sky"></i> Cloud Share & Device Sync</h3>
+            <button class="modal-close" id="closeCloudSyncModalBtn">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="cloud-success-badge">
+              <i class="fa-solid fa-circle-check"></i> Project Saved to Cloud Successfully!
+            </div>
+            
+            <!-- QR Code Section for Mobile -->
+            <div class="cloud-qr-section">
+              <div class="cloud-qr-box">
+                <img id="cloudShareQrImg" alt="QR Code to open on mobile" class="cloud-qr-image" />
+              </div>
+              <div class="cloud-qr-info">
+                <strong><i class="fa-solid fa-mobile-screen-button text-sky"></i> Open on Smartphone:</strong>
+                <p>Scan this QR code with your phone camera to instantly open and view this project on your mobile device.</p>
+                <div class="cloud-qr-sub">Fast & no typing required!</div>
+              </div>
+            </div>
+
+            <!-- Cloud Sync Code -->
+            <div class="cloud-field-block">
+              <label><i class="fa-solid fa-key text-orange"></i> Cloud Sync Code:</label>
+              <div class="cloud-code-row">
+                <input type="text" id="cloudSyncCodeDisplay" class="input-text cloud-code-input" readonly />
+                <button type="button" id="copyCloudCodeBtn" class="btn btn-secondary"><i class="fa-regular fa-copy"></i> Copy Code</button>
+              </div>
+              <small class="helper-text">Enter this 10-character code on any device under <em>"Load from Cloud"</em>.</small>
+            </div>
+
+            <!-- Direct Share Link -->
+            <div class="cloud-field-block">
+              <label><i class="fa-solid fa-link text-sky"></i> Direct Share Link:</label>
+              <div class="cloud-code-row">
+                <input type="text" id="cloudShareUrlDisplay" class="input-text" readonly />
+                <button type="button" id="copyCloudUrlBtn" class="btn btn-primary"><i class="fa-regular fa-copy"></i> Copy Link</button>
+              </div>
+            </div>
+
+            <div class="cloud-tip-box">
+              <i class="fa-solid fa-shield-halved"></i> Includes all multi-route categories, colors, waypoints, start times, and landmarks.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <a id="cloudDirectOpenLink" href="#" target="_blank" class="btn btn-outline" style="margin-right: auto; text-decoration: none;">
+              <i class="fa-solid fa-arrow-up-right-from-square"></i> Open Link in New Tab
+            </a>
+            <button type="button" id="closeCloudSyncModalBtn2" class="btn btn-secondary">Close</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cloud Load Modal -->
+      <div id="cloudLoadModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box cloud-load-modal-box">
+          <div class="modal-header">
+            <h3><i class="fa-solid fa-cloud-arrow-down text-sky"></i> Load Project from Cloud</h3>
+            <button class="modal-close" id="closeCloudLoadModalBtn">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="modal-intro-text">
+              Enter the <strong>Cloud Sync Code</strong> or paste the <strong>Share Link</strong> from another device to load all routes and landmarks:
+            </p>
+            
+            <div class="form-group">
+              <label for="cloudInputCode"><i class="fa-solid fa-key text-orange"></i> Cloud Code or Link:</label>
+              <input type="text" id="cloudInputCode" class="input-text" placeholder="e.g. Id49dCBYqd or paste share URL..." autocomplete="off" />
+            </div>
+
+            <div class="cloud-tip-box">
+              <i class="fa-solid fa-circle-info"></i> This will replace your current workspace and load all routes, colors, waypoints, landmarks, and pacing settings.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" id="closeCloudLoadModalBtn2" class="btn btn-secondary">Cancel</button>
+            <button type="button" id="submitCloudLoadBtn" class="btn btn-primary"><i class="fa-solid fa-cloud-arrow-down"></i> Load Project</button>
           </div>
         </div>
       </div>
