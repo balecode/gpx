@@ -1253,12 +1253,41 @@ body.resizing-sidebar #map {
   line-height: 1.4;
 }
 
-/* Landmark Badges */
-.landmark-badges, .modal-badges {
+/* Landmark Badges in Sidebar */
+.landmark-badges {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 8px;
   margin-top: 8px;
+}
+
+/* Landmark Badges in Modal Dialog */
+.modal-badges {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+  max-height: 135px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.modal-badges::-webkit-scrollbar {
+  width: 5px;
+}
+
+.modal-badges::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.modal-badges::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.modal-badges::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .badge-btn {
@@ -1852,15 +1881,23 @@ body.resizing-sidebar #map {
   align-items: center;
   justify-content: center;
   z-index: 2000;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
 .modal-box {
-  width: 90%;
-  max-width: 440px;
+  width: 100%;
+  max-width: 460px;
+  max-height: min(88vh, 600px);
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.15);
   overflow: hidden;
+  position: relative;
+  margin: auto;
   animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1870,36 +1907,73 @@ body.resizing-sidebar #map {
 }
 
 .modal-header {
-  padding: 16px 20px;
+  padding: 14px 18px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  background: #ffffff;
+  z-index: 2;
 }
 
 .modal-header h3 {
-  font-size: 1.1rem;
+  font-size: 1.05rem;
   font-weight: 700;
   display: flex;
   align-items: center;
   gap: 8px;
   color: var(--text-primary);
+  margin: 0;
 }
 
 .modal-close {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 22px;
   color: var(--text-muted);
   cursor: pointer;
   line-height: 1;
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+  background: #f1f5f9;
 }
 
 .modal-body {
-  padding: 20px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .form-group {
@@ -1915,12 +1989,32 @@ body.resizing-sidebar #map {
 }
 
 .modal-footer {
-  padding: 14px 20px;
+  padding: 12px 18px;
   background-color: var(--surface-card);
   border-top: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 10px;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+/* Landmark Modal Box Specifics */
+.landmark-modal-box {
+  max-width: 460px;
+}
+
+.landmark-modal-box .form-group {
+  gap: 5px;
+}
+
+.landmark-modal-box .time-estimate-option-card {
+  margin-top: 2px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
 }
 
 /* GPS Help Modal Styling */
@@ -2760,6 +2854,56 @@ body.resizing-sidebar #map {
   width: auto;
 }
 
+.lrsc-pace-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 8px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.lrsc-pace-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lrsc-pace-chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.lrsc-pace-chip {
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+}
+
+.lrsc-pace-chip:hover {
+  border-color: #94a3b8;
+  transform: translateY(-1px);
+}
+
+.lrsc-pace-chip.active {
+  background: var(--route-color, #0284c7);
+  color: #ffffff;
+  border-color: var(--route-color, #0284c7);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
 .lrsc-runners-table {
   display: flex;
   flex-direction: column;
@@ -2924,4 +3068,231 @@ body.resizing-sidebar #map {
 .runner-live-tooltip::before {
   border-top-color: rgba(15, 23, 42, 0.95) !important;
 }
+
+/* ==========================================================================
+   Cross-Device Cloud Sync & Project Backup Styles
+   ========================================================================== */
+.sync-card {
+  border-left: 4px solid #0284c7;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f9ff 100%);
+}
+
+.badge-chip-cloud {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  border: 1px solid #bae6fd;
+}
+
+.sync-action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-cloud-save {
+  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25) !important;
+  border: none !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.btn-cloud-save:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35) !important;
+  filter: brightness(1.05);
+}
+
+.btn-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cloud-sync-modal-box {
+  max-width: 480px;
+}
+
+.cloud-load-modal-box {
+  max-width: 440px;
+}
+
+.cloud-success-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.cloud-qr-section {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+}
+
+.cloud-qr-box {
+  background: #ffffff;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border-color);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cloud-qr-image {
+  width: 105px;
+  height: 105px;
+  display: block;
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+
+.cloud-qr-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cloud-qr-info strong {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-qr-info p {
+  font-size: 0.77rem;
+  color: var(--text-secondary);
+  line-height: 1.35;
+  margin: 0;
+}
+
+.cloud-qr-sub {
+  font-size: 0.72rem;
+  color: #0284c7;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.cloud-field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cloud-field-block label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.cloud-code-input {
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  font-size: 0.98rem;
+  letter-spacing: 2px;
+  color: #0369a1;
+  background: #f0f9ff;
+  border: 1px dashed #7dd3fc;
+  text-align: center;
+  height: 38px;
+}
+
+.cloud-tip-box {
+  background: #f8fafc;
+  border-left: 3px solid #0284c7;
+  padding: 8px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.76rem;
+  color: #475569;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.35;
+}
+
+.cloud-tip-box i {
+  color: #0284c7;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Responsive adjustments for short viewports (laptops, split screen, mobile landscape) */
+@media (max-height: 650px) {
+  .modal-box {
+    max-height: 92vh;
+  }
+  .modal-header {
+    padding: 10px 14px;
+  }
+  .modal-body {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .modal-footer {
+    padding: 10px 14px;
+  }
+  .cloud-qr-image {
+    width: 90px;
+    height: 90px;
+  }
+  .cloud-qr-section {
+    padding: 8px 10px;
+    gap: 10px;
+  }
+  .modal-badges {
+    max-height: 110px;
+  }
+}
+
+/* Drag and Drop Project Zone Highlight */
+body.dragover-active::after {
+  content: '📂 Drop .stridemap or .json file to open project';
+  position: fixed;
+  inset: 16px;
+  border: 4px dashed #0284c7;
+  background: rgba(2, 132, 199, 0.15);
+  backdrop-filter: blur(4px);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #0369a1;
+  border-radius: 20px;
+  pointer-events: none;
+  animation: modalPop 0.15s ease-out;
+}
+
 
