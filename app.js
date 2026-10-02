@@ -36,12 +36,15 @@ const ROUTE_PRESETS = {
 const COLOR_PALETTE = ['#0284c7', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#fc4c02', '#06b6d4', '#84cc16'];
 
 const LIVE_PACES = [
+  { pace: 2.5, name: 'Pace 2.5', paceSeconds: 150, color: '#f43f5e', speedKmH: '24.0' },
   { pace: 3, name: 'Pace 3', paceSeconds: 180, color: '#ec4899', speedKmH: '20.0' },
   { pace: 4, name: 'Pace 4', paceSeconds: 240, color: '#ef4444', speedKmH: '15.0' },
   { pace: 5, name: 'Pace 5', paceSeconds: 300, color: '#ea580c', speedKmH: '12.0' },
   { pace: 6, name: 'Pace 6', paceSeconds: 360, color: '#10b981', speedKmH: '10.0' },
   { pace: 7, name: 'Pace 7', paceSeconds: 420, color: '#0284c7', speedKmH: '8.6' },
-  { pace: 8, name: 'Pace 8', paceSeconds: 480, color: '#8b5cf6', speedKmH: '7.5' }
+  { pace: 8, name: 'Pace 8', paceSeconds: 480, color: '#8b5cf6', speedKmH: '7.5' },
+  { pace: 9, name: 'Pace 9', paceSeconds: 540, color: '#6366f1', speedKmH: '6.7' },
+  { pace: 10, name: 'Pace 10', paceSeconds: 600, color: '#64748b', speedKmH: '6.0' }
 ];
 
 class StrideMapApp {
@@ -74,7 +77,7 @@ class StrideMapApp {
     this.liveSimulationTimer = null;
     this.liveCurrentSeconds = 6 * 3600 + 30 * 60; // 06:30:00
     this.liveSpeedMultiplier = 15;
-    this.liveActivePaces = new Set([3, 4, 5, 6, 7, 8]);
+    this.liveActivePaces = new Set([2.5, 3, 4, 5, 6, 7, 8, 9, 10]);
     this.liveRunnerMarkers = new Map(); // key: `${route.id}_p${pace}` -> L.marker
 
     this.initDOMElements();
@@ -90,6 +93,9 @@ class StrideMapApp {
     
     // Pulihkan rute & landmark terakhir yang disimpan di localStorage
     this.loadSavedRoute();
+
+    // Periksa apakah dibuka via tautan cloud share (?cloud=KEY atau #cloud=KEY)
+    this.checkUrlCloudParam();
   }
 
   // Helper untuk memastikan layer polyline sebuah rute terpasang dengan benar di Leaflet
@@ -288,6 +294,26 @@ class StrideMapApp {
     this.saveLandmarkBtn = document.getElementById('saveLandmarkBtn');
     this.cancelLandmarkBtn = document.getElementById('cancelLandmarkBtn');
     this.closeModalBtn = document.getElementById('closeModalBtn');
+
+    // Cross-Device Sync & Project Backup Elements
+    this.cloudShareBtn = document.getElementById('cloudShareBtn');
+    this.cloudLoadModalBtn = document.getElementById('cloudLoadModalBtn');
+    this.saveProjectFileBtn = document.getElementById('saveProjectFileBtn');
+    this.projectFileInput = document.getElementById('projectFileInput');
+    this.cloudSyncModal = document.getElementById('cloudSyncModal');
+    this.closeCloudSyncModalBtn = document.getElementById('closeCloudSyncModalBtn');
+    this.closeCloudSyncModalBtn2 = document.getElementById('closeCloudSyncModalBtn2');
+    this.cloudLoadModal = document.getElementById('cloudLoadModal');
+    this.closeCloudLoadModalBtn = document.getElementById('closeCloudLoadModalBtn');
+    this.closeCloudLoadModalBtn2 = document.getElementById('closeCloudLoadModalBtn2');
+    this.cloudSyncCodeDisplay = document.getElementById('cloudSyncCodeDisplay');
+    this.copyCloudCodeBtn = document.getElementById('copyCloudCodeBtn');
+    this.cloudShareUrlDisplay = document.getElementById('cloudShareUrlDisplay');
+    this.copyCloudUrlBtn = document.getElementById('copyCloudUrlBtn');
+    this.cloudShareQrImg = document.getElementById('cloudShareQrImg');
+    this.cloudDirectOpenLink = document.getElementById('cloudDirectOpenLink');
+    this.cloudInputCode = document.getElementById('cloudInputCode');
+    this.submitCloudLoadBtn = document.getElementById('submitCloudLoadBtn');
   }
 
   initMap() {
@@ -556,9 +582,10 @@ class StrideMapApp {
     const onPaceNumChange = () => {
       let min = parseInt(this.paceMinInput.value) || 6;
       let sec = parseInt(this.paceSecInput.value) || 0;
-      min = Math.max(3, Math.min(15, min));
+      min = Math.max(2, Math.min(15, min));
       sec = Math.max(0, Math.min(59, sec));
       this.paceSeconds = min * 60 + sec;
+      if (this.paceSeconds < 150) this.paceSeconds = 150;
       if (this.paceRange) this.paceRange.value = this.paceSeconds;
       this.updatePaceDisplay();
       this.updateStats();
@@ -626,6 +653,65 @@ class StrideMapApp {
     this.exportGpxBtn.addEventListener('click', () => this.exportGPX());
     this.exportKmlBtn.addEventListener('click', () => this.exportKML());
     this.gpxFileInput.addEventListener('change', (e) => this.handleFileImport(e));
+
+    // Cloud Share & Project Backup Events
+    if (this.cloudShareBtn) {
+      this.cloudShareBtn.addEventListener('click', () => this.saveToCloud());
+    }
+    if (this.cloudLoadModalBtn) {
+      this.cloudLoadModalBtn.addEventListener('click', () => this.openCloudLoadModal());
+    }
+    if (this.saveProjectFileBtn) {
+      this.saveProjectFileBtn.addEventListener('click', () => this.exportProjectFile());
+    }
+    if (this.projectFileInput) {
+      this.projectFileInput.addEventListener('change', (e) => this.handleProjectFileInput(e));
+    }
+    if (this.closeCloudSyncModalBtn) {
+      this.closeCloudSyncModalBtn.addEventListener('click', () => this.closeCloudSyncModal());
+    }
+    if (this.closeCloudSyncModalBtn2) {
+      this.closeCloudSyncModalBtn2.addEventListener('click', () => this.closeCloudSyncModal());
+    }
+    if (this.cloudSyncModal) {
+      this.cloudSyncModal.addEventListener('click', (e) => {
+        if (e.target === this.cloudSyncModal) this.closeCloudSyncModal();
+      });
+    }
+    if (this.closeCloudLoadModalBtn) {
+      this.closeCloudLoadModalBtn.addEventListener('click', () => this.closeCloudLoadModal());
+    }
+    if (this.closeCloudLoadModalBtn2) {
+      this.closeCloudLoadModalBtn2.addEventListener('click', () => this.closeCloudLoadModal());
+    }
+    if (this.cloudLoadModal) {
+      this.cloudLoadModal.addEventListener('click', (e) => {
+        if (e.target === this.cloudLoadModal) this.closeCloudLoadModal();
+      });
+    }
+    if (this.copyCloudCodeBtn && this.cloudSyncCodeDisplay) {
+      this.copyCloudCodeBtn.addEventListener('click', () => {
+        this.copyToClipboard(this.cloudSyncCodeDisplay.value, this.copyCloudCodeBtn, 'Code Copied!');
+      });
+    }
+    if (this.copyCloudUrlBtn && this.cloudShareUrlDisplay) {
+      this.copyCloudUrlBtn.addEventListener('click', () => {
+        this.copyToClipboard(this.cloudShareUrlDisplay.value, this.copyCloudUrlBtn, 'Link Copied!');
+      });
+    }
+    if (this.submitCloudLoadBtn) {
+      this.submitCloudLoadBtn.addEventListener('click', () => this.loadFromCloudInput());
+    }
+    if (this.cloudInputCode) {
+      this.cloudInputCode.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.loadFromCloudInput();
+        }
+      });
+    }
+
+    this.initDragAndDrop();
 
     this.closeModalBtn.addEventListener('click', () => this.closeLandmarkModal());
     this.cancelLandmarkBtn.addEventListener('click', () => this.closeLandmarkModal());
@@ -1129,42 +1215,176 @@ class StrideMapApp {
     };
   }
 
+  // --- Project Data Serialization & Cross-Device Sync ---
+  buildProjectData() {
+    return {
+      version: '2.0',
+      appName: 'StrideMap',
+      exportedAt: new Date().toISOString(),
+      routeTitle: this.routeTitleInput ? this.routeTitleInput.value.trim() : 'My Running Route',
+      activeRouteId: this.activeRouteId,
+      mapView: {
+        center: this.map ? [this.map.getCenter().lat, this.map.getCenter().lng] : null,
+        zoom: this.map ? this.map.getZoom() : 15
+      },
+      routes: this.routes.map(r => ({
+        id: r.id,
+        name: r.name,
+        color: r.color,
+        visible: r.visible,
+        waypoints: (r.waypoints || []).map(w => ({
+          lat: w.lat,
+          lng: w.lng,
+          mode: w.mode || 'auto',
+          segmentCoords: w.segmentCoords || null
+        })),
+        routePolyline: r.polyline ? r.polyline.getLatLngs().map(p => ({ lat: p.lat, lng: p.lng })) : [],
+        paceSeconds: r.paceSeconds || 360,
+        startTime: r.startTime || '06:00',
+        snapToRoad: r.snapToRoad !== undefined ? r.snapToRoad : true,
+        activePaces: r.activePaces ? Array.from(r.activePaces) : Array.from(LIVE_PACES.map(p => p.pace))
+      })),
+      landmarks: this.landmarks.map(l => ({
+        id: l.id,
+        lat: l.lat,
+        lng: l.lng,
+        type: l.type,
+        name: l.name,
+        desc: l.desc,
+        isAuto: l.isAuto || false,
+        showTimeEstimate: l.showTimeEstimate !== undefined ? l.showTimeEstimate : true
+      }))
+    };
+  }
+
   // --- LocalStorage Persistence (Mencegah hilang saat reload browser) ---
   saveToStorage() {
     try {
-      const dataToSave = {
-        routes: this.routes.map(r => ({
-          id: r.id,
-          name: r.name,
-          color: r.color,
-          visible: r.visible,
-          waypoints: r.waypoints.map(w => ({
-            lat: w.lat,
-            lng: w.lng,
-            mode: w.mode || 'auto',
-            segmentCoords: w.segmentCoords || null
-          })),
-          routePolyline: r.polyline ? r.polyline.getLatLngs().map(p => ({ lat: p.lat, lng: p.lng })) : [],
-          paceSeconds: r.paceSeconds || 360,
-          startTime: r.startTime || '06:00',
-          snapToRoad: r.snapToRoad !== undefined ? r.snapToRoad : true
-        })),
-        activeRouteId: this.activeRouteId,
-        landmarks: this.landmarks.map(l => ({
-          id: l.id,
-          lat: l.lat,
-          lng: l.lng,
-          type: l.type,
-          name: l.name,
-          desc: l.desc,
-          isAuto: l.isAuto || false,
-          showTimeEstimate: l.showTimeEstimate !== undefined ? l.showTimeEstimate : true
-        })),
-        routeTitle: this.routeTitleInput ? this.routeTitleInput.value : 'My Running Route'
-      };
+      const dataToSave = this.buildProjectData();
       localStorage.setItem('stridemap_active_route', JSON.stringify(dataToSave));
     } catch (e) {
-      console.warn('Gagal menyimpan ke localStorage:', e);
+      console.warn('Failed to save to localStorage:', e);
+    }
+  }
+
+  async loadProjectData(data, sourceName = 'Project') {
+    if (!data || (!data.routes && !data.waypoints)) {
+      throw new Error('Invalid StrideMap project data format.');
+    }
+
+    this.saveStateToHistory();
+
+    if (data.routeTitle && this.routeTitleInput) {
+      this.routeTitleInput.value = data.routeTitle;
+    }
+
+    // 1. Bersihkan landmarks lama
+    this.landmarks.forEach(l => {
+      if (l.marker) this.map.removeLayer(l.marker);
+    });
+    this.landmarks = [];
+
+    // 2. Muat landmarks manual/kustom
+    if (data.landmarks && Array.isArray(data.landmarks)) {
+      data.landmarks.forEach(l => {
+        if (!l.isAuto) {
+          this.createInternalLandmark({
+            lat: l.lat,
+            lng: l.lng,
+            type: l.type,
+            name: l.name,
+            desc: l.desc,
+            isAuto: false,
+            showTimeEstimate: l.showTimeEstimate !== undefined ? l.showTimeEstimate : true
+          });
+        }
+      });
+    }
+
+    // 3. Bersihkan rute lama
+    this.routes.forEach(r => {
+      if (r.polyline) this.map.removeLayer(r.polyline);
+      r.waypointMarkers.forEach(m => this.map.removeLayer(m));
+    });
+    this.routes = [];
+
+    // 4. Muat rute
+    if (data.routes && Array.isArray(data.routes) && data.routes.length > 0) {
+      data.routes.forEach(savedR => {
+        let cleanName = (savedR.name || '5K').trim();
+        if (/^(rute|route)\s*5k$/i.test(cleanName)) cleanName = '5K';
+        else if (/^(rute|route)\s*10k$/i.test(cleanName)) cleanName = '10K';
+        else if (/^(rute|route)\s*21k(\s*\(hm\))?$/i.test(cleanName) || /^21k\s*\(hm\)$/i.test(cleanName)) cleanName = '21K';
+        else if (/^(rute|route)\s*42k(\s*\(fm\))?$/i.test(cleanName) || /^42k\s*\(fm\)$/i.test(cleanName)) cleanName = '42K';
+        else if (/^(rute|route)\s+(\d+k)$/i.test(cleanName)) cleanName = cleanName.replace(/^(rute|route)\s+/i, '').toUpperCase();
+
+        const rObj = this.createRoute({
+          id: savedR.id,
+          name: cleanName,
+          color: savedR.color,
+          visible: savedR.visible !== undefined ? savedR.visible : true,
+          paceSeconds: savedR.paceSeconds || 360,
+          startTime: savedR.startTime || '06:00',
+          snapToRoad: savedR.snapToRoad !== undefined ? savedR.snapToRoad : true,
+          activePaces: savedR.activePaces || null,
+          waypoints: savedR.waypoints ? savedR.waypoints.map(w => {
+            const pt = L.latLng(w.lat, w.lng);
+            pt.mode = w.mode || 'auto';
+            pt.segmentCoords = w.segmentCoords || null;
+            return pt;
+          }) : [],
+          polylineCoords: savedR.routePolyline ? savedR.routePolyline.map(p => L.latLng(p.lat, p.lng)) : []
+        });
+        this.routes.push(rObj);
+        this.ensureRoutePolylineLayer(rObj);
+
+        if (rObj.waypoints.length >= 2 && (!savedR.routePolyline || savedR.routePolyline.length < 2)) {
+          rObj.polyline.setLatLngs(rObj.waypoints);
+        }
+      });
+
+      this.activeRouteId = data.activeRouteId || this.routes[0].id;
+    } else if (data.waypoints && Array.isArray(data.waypoints) && data.waypoints.length > 0) {
+      // Legacy single-route format
+      const legacyRoute = this.createRoute({
+        name: '5K',
+        color: ROUTE_PRESETS['5k'].color,
+        startTime: data.startTime || '06:00',
+        paceSeconds: data.paceSeconds || 360,
+        snapToRoad: data.snapToRoad !== undefined ? data.snapToRoad : true,
+        waypoints: data.waypoints.map(w => {
+          const pt = L.latLng(w.lat, w.lng);
+          pt.mode = w.mode || 'auto';
+          pt.segmentCoords = w.segmentCoords || null;
+          return pt;
+        }),
+        polylineCoords: data.routePolyline ? data.routePolyline.map(p => L.latLng(p.lat, p.lng)) : []
+      });
+      this.routes.push(legacyRoute);
+      this.ensureRoutePolylineLayer(legacyRoute);
+      this.activeRouteId = legacyRoute.id;
+    } else {
+      const initial5K = this.createRoute({ name: '5K', color: ROUTE_PRESETS['5k'].color, startTime: '06:00', paceSeconds: 360 });
+      this.routes.push(initial5K);
+      this.activeRouteId = initial5K.id;
+    }
+
+    this.setActiveRoute(this.activeRouteId);
+    this.syncAutoStartFinishLandmarks();
+    this.renderRouteList();
+    this.renderLandmarkList();
+    this.updateStats();
+    this.updateControlsState();
+    this.saveToStorage();
+
+    if (data.mapView && data.mapView.center && this.map) {
+      try {
+        this.map.setView(data.mapView.center, data.mapView.zoom || 15);
+      } catch (err) {
+        setTimeout(() => this.fitRouteBounds(), 300);
+      }
+    } else {
+      setTimeout(() => this.fitRouteBounds(), 300);
     }
   }
 
@@ -1176,111 +1396,263 @@ class StrideMapApp {
       const data = JSON.parse(savedRaw);
       if (!data) return;
 
-      if (data.routeTitle && this.routeTitleInput) {
-        this.routeTitleInput.value = data.routeTitle;
-      }
-
-      // 1. Bersihkan landmarks yang mungkin sudah ada di map
-      this.landmarks.forEach(l => {
-        if (l.marker) this.map.removeLayer(l.marker);
-      });
-      this.landmarks = [];
-
-      // Muat landmark manual/kustom (bukan auto start/finish agar tidak terduplikasi)
-      if (data.landmarks && Array.isArray(data.landmarks)) {
-        data.landmarks.forEach(l => {
-          if (!l.isAuto) {
-            this.createInternalLandmark({
-              lat: l.lat,
-              lng: l.lng,
-              type: l.type,
-              name: l.name,
-              desc: l.desc,
-              isAuto: false,
-              showTimeEstimate: l.showTimeEstimate !== undefined ? l.showTimeEstimate : true
-            });
-          }
-        });
-      }
-
-      // 2. Muat routes jika format multi-rute
-      if (data.routes && Array.isArray(data.routes) && data.routes.length > 0) {
-        // Hapus rute bawaan sebelumnya
-        this.routes.forEach(r => {
-          if (r.polyline) this.map.removeLayer(r.polyline);
-          r.waypointMarkers.forEach(m => this.map.removeLayer(m));
-        });
-        this.routes = [];
-
-        data.routes.forEach(savedR => {
-          let cleanName = (savedR.name || '5K').trim();
-          if (/^(rute|route)\s*5k$/i.test(cleanName)) cleanName = '5K';
-          else if (/^(rute|route)\s*10k$/i.test(cleanName)) cleanName = '10K';
-          else if (/^(rute|route)\s*21k(\s*\(hm\))?$/i.test(cleanName) || /^21k\s*\(hm\)$/i.test(cleanName)) cleanName = '21K';
-          else if (/^(rute|route)\s*42k(\s*\(fm\))?$/i.test(cleanName) || /^42k\s*\(fm\)$/i.test(cleanName)) cleanName = '42K';
-          else if (/^(rute|route)\s+(\d+k)$/i.test(cleanName)) cleanName = cleanName.replace(/^(rute|route)\s+/i, '').toUpperCase();
-
-          const rObj = this.createRoute({
-            id: savedR.id,
-            name: cleanName,
-            color: savedR.color,
-            visible: savedR.visible !== undefined ? savedR.visible : true,
-            paceSeconds: savedR.paceSeconds || 360,
-            startTime: savedR.startTime || '06:00',
-            snapToRoad: savedR.snapToRoad !== undefined ? savedR.snapToRoad : true,
-            waypoints: savedR.waypoints ? savedR.waypoints.map(w => {
-              const pt = L.latLng(w.lat, w.lng);
-              pt.mode = w.mode || 'auto';
-              pt.segmentCoords = w.segmentCoords || null;
-              return pt;
-            }) : [],
-            polylineCoords: savedR.routePolyline ? savedR.routePolyline.map(p => L.latLng(p.lat, p.lng)) : []
-          });
-          this.routes.push(rObj);
-          this.ensureRoutePolylineLayer(rObj);
-
-          if (rObj.waypoints.length >= 2 && (!savedR.routePolyline || savedR.routePolyline.length < 2)) {
-            rObj.polyline.setLatLngs(rObj.waypoints);
-          }
-        });
-
-        this.activeRouteId = data.activeRouteId || this.routes[0].id;
-        this.setActiveRoute(this.activeRouteId);
-        this.syncAutoStartFinishLandmarks();
-        this.renderRouteList();
-        setTimeout(() => this.fitRouteBounds(), 400);
-      } else if (data.waypoints && Array.isArray(data.waypoints) && data.waypoints.length > 0) {
-        // Format lama (single route migration)
-        const defRoute = this.routes[0];
-        if (defRoute) {
-          defRoute.waypoints = data.waypoints.map(w => {
-            const pt = L.latLng(w.lat, w.lng);
-            pt.mode = w.mode || 'auto';
-            pt.segmentCoords = w.segmentCoords || null;
-            return pt;
-          });
-          if (data.paceSeconds) defRoute.paceSeconds = data.paceSeconds;
-          if (data.startTime) defRoute.startTime = data.startTime;
-          if (data.snapToRoad !== undefined) defRoute.snapToRoad = data.snapToRoad;
-          this.ensureRoutePolylineLayer(defRoute);
-          if (data.routePolyline && Array.isArray(data.routePolyline) && data.routePolyline.length >= 2) {
-            defRoute.polyline.setLatLngs(data.routePolyline.map(p => L.latLng(p.lat, p.lng)));
-          } else {
-            await this.recalculateRoute(false);
-          }
-          this.setActiveRoute(defRoute.id);
-          this.syncAutoStartFinishLandmarks();
-          this.renderRouteList();
-          setTimeout(() => this.fitRouteBounds(), 400);
-        }
-      } else {
-        this.renderLandmarkList();
-        this.updateStats();
-        this.updateControlsState();
-      }
+      await this.loadProjectData(data, 'LocalStorage');
     } catch (e) {
-      console.warn('Gagal memulihkan rute dari localStorage:', e);
+      console.warn('Failed to restore project from localStorage:', e);
     }
+  }
+
+  // --- Project File Backup (.stridemap / .json) ---
+  exportProjectFile() {
+    const data = this.buildProjectData();
+    const title = (this.routeTitleInput ? this.routeTitleInput.value.trim() : 'stride_map_project') || 'stride_map_project';
+    const filename = `${title.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.stridemap`;
+    const jsonStr = JSON.stringify(data, null, 2);
+    this.downloadFile(jsonStr, filename, 'application/json');
+  }
+
+  handleProjectFileInput(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        this.showLoading(true, 'Opening project file...');
+        const json = JSON.parse(event.target.result);
+        await this.loadProjectData(json, file.name);
+        this.showLoading(false);
+        alert(`Project loaded successfully from ${file.name}!`);
+      } catch (err) {
+        this.showLoading(false);
+        console.error('Failed to parse project file:', err);
+        alert('Invalid StrideMap project file: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  // --- Cross-Device Cloud Sync via Bytebin (Cloudflare Edge) ---
+  async saveToCloud() {
+    try {
+      this.showLoading(true, 'Saving project to cloud...');
+      const projectData = this.buildProjectData();
+
+      const response = await fetch('https://bytebin.lucko.me/post', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(projectData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Cloud server returned HTTP ${response.status}`);
+      }
+
+      const resJson = await response.json();
+      const cloudKey = resJson.key;
+      if (!cloudKey) {
+        throw new Error('No cloud sync key received from server.');
+      }
+
+      this.showLoading(false);
+      this.openCloudSyncModal(cloudKey);
+    } catch (err) {
+      this.showLoading(false);
+      console.error('Cloud save failed:', err);
+      alert('Failed to save to cloud: ' + err.message + '\n\nTip: You can use "Save File (.stridemap)" as an offline alternative.');
+    }
+  }
+
+  openCloudSyncModal(cloudKey) {
+    if (!this.cloudSyncModal) return;
+
+    // Generate Share URL
+    const isHttp = window.location.protocol.startsWith('http');
+    let shareUrl = '';
+    let qrData = '';
+
+    if (isHttp) {
+      const baseUrl = window.location.href.split('?')[0].split('#')[0];
+      shareUrl = `${baseUrl}?cloud=${cloudKey}`;
+      qrData = shareUrl;
+    } else {
+      shareUrl = `file://${window.location.pathname}?cloud=${cloudKey}`;
+      qrData = cloudKey;
+    }
+
+    if (this.cloudSyncCodeDisplay) this.cloudSyncCodeDisplay.value = cloudKey;
+    if (this.cloudShareUrlDisplay) this.cloudShareUrlDisplay.value = shareUrl;
+    
+    if (this.cloudDirectOpenLink) {
+      this.cloudDirectOpenLink.href = shareUrl;
+    }
+
+    if (this.cloudShareQrImg) {
+      this.cloudShareQrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrData)}`;
+    }
+
+    this.cloudSyncModal.style.display = 'flex';
+  }
+
+  closeCloudSyncModal() {
+    if (this.cloudSyncModal) this.cloudSyncModal.style.display = 'none';
+  }
+
+  openCloudLoadModal() {
+    if (this.cloudInputCode) this.cloudInputCode.value = '';
+    if (this.cloudLoadModal) this.cloudLoadModal.style.display = 'flex';
+  }
+
+  closeCloudLoadModal() {
+    if (this.cloudLoadModal) this.cloudLoadModal.style.display = 'none';
+  }
+
+  async loadFromCloudInput() {
+    if (!this.cloudInputCode) return;
+    const rawVal = this.cloudInputCode.value.trim();
+    if (!rawVal) {
+      alert('Please enter a Cloud Sync Code or paste a Share Link!');
+      return;
+    }
+    await this.loadFromCloud(rawVal);
+  }
+
+  async loadFromCloud(keyOrUrl, isAuto = false) {
+    try {
+      let key = (keyOrUrl || '').trim();
+      if (key.includes('cloud=')) {
+        key = key.split('cloud=')[1].split('&')[0].split('#')[0];
+      } else if (key.includes('/')) {
+        const parts = key.split('/');
+        key = parts[parts.length - 1];
+      }
+
+      key = key.replace(/[^a-zA-Z0-9]/g, '');
+      if (!key) {
+        throw new Error('Invalid Cloud Code format.');
+      }
+
+      this.showLoading(true, 'Fetching shared project from cloud...');
+      const response = await fetch(`https://bytebin.lucko.me/${key}`);
+      if (!response.ok) {
+        throw new Error(`Project not found in cloud (HTTP ${response.status})`);
+      }
+
+      const projectData = await response.json();
+      await this.loadProjectData(projectData, `Cloud [${key}]`);
+      this.showLoading(false);
+      this.closeCloudLoadModal();
+
+      if (!isAuto) {
+        alert(`Project "${projectData.routeTitle || 'Shared Project'}" successfully loaded from cloud!`);
+      }
+    } catch (err) {
+      this.showLoading(false);
+      console.error('Cloud load failed:', err);
+      alert('Failed to load project from cloud: ' + err.message);
+    }
+  }
+
+  checkUrlCloudParam() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      let cloudKey = urlParams.get('cloud');
+      if (!cloudKey && window.location.hash.includes('cloud=')) {
+        cloudKey = window.location.hash.split('cloud=')[1].split('&')[0];
+      }
+      if (cloudKey) {
+        this.loadFromCloud(cloudKey, true);
+      }
+    } catch (err) {
+      console.warn('Error checking cloud param:', err);
+    }
+  }
+
+  copyToClipboard(text, btnElement, successLabel = 'Copied!') {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        this.showCopyFeedback(btnElement, successLabel);
+      }).catch(() => {
+        this.fallbackCopyText(text, btnElement, successLabel);
+      });
+    } else {
+      this.fallbackCopyText(text, btnElement, successLabel);
+    }
+  }
+
+  fallbackCopyText(text, btnElement, successLabel) {
+    try {
+      const tempInput = document.createElement('textarea');
+      tempInput.value = text;
+      tempInput.style.position = 'fixed';
+      tempInput.style.left = '-9999px';
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+      this.showCopyFeedback(btnElement, successLabel);
+    } catch (err) {
+      console.warn('Clipboard copy failed:', err);
+      alert('Copy to clipboard failed. Please copy manually: ' + text);
+    }
+  }
+
+  showCopyFeedback(btnElement, text) {
+    if (!btnElement) return;
+    const prevHtml = btnElement.innerHTML;
+    btnElement.innerHTML = `<i class="fa-solid fa-check"></i> ${text}`;
+    btnElement.style.borderColor = '#10b981';
+    btnElement.style.color = '#10b981';
+    setTimeout(() => {
+      btnElement.innerHTML = prevHtml;
+      btnElement.style.borderColor = '';
+      btnElement.style.color = '';
+    }, 1800);
+  }
+
+  initDragAndDrop() {
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      document.body.classList.add('dragover-active');
+    });
+
+    ['dragleave', 'dragend'].forEach(ev => {
+      window.addEventListener(ev, () => {
+        document.body.classList.remove('dragover-active');
+      });
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      document.body.classList.remove('dragover-active');
+
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const fname = file.name.toLowerCase();
+        if (fname.endsWith('.stridemap') || fname.endsWith('.json')) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            try {
+              this.showLoading(true, 'Opening dropped project...');
+              const json = JSON.parse(event.target.result);
+              await this.loadProjectData(json, file.name);
+              this.showLoading(false);
+              alert(`Project loaded successfully from ${file.name}!`);
+            } catch (err) {
+              this.showLoading(false);
+              alert('Invalid project file: ' + err.message);
+            }
+          };
+          reader.readAsText(file);
+        } else if (fname.endsWith('.gpx') || fname.endsWith('.kml')) {
+          this.handleFileImport({ target: { files: [file], value: '' } });
+        }
+      }
+    });
   }
 
   saveStateToHistory() {
@@ -1824,6 +2196,10 @@ class StrideMapApp {
       return pt;
     });
 
+    const activePaces = options.activePaces
+      ? new Set(options.activePaces.map(Number))
+      : new Set(LIVE_PACES.map(p => p.pace));
+
     const route = {
       id,
       name,
@@ -1835,6 +2211,7 @@ class StrideMapApp {
       paceSeconds,
       startTime,
       snapToRoad,
+      activePaces,
       undoStack: [],
       redoStack: []
     };
@@ -2613,9 +2990,12 @@ class StrideMapApp {
         paceStr = `${paceMin}:${paceSec.toString().padStart(2, '0')}`;
         speedStr = `${(distKm / (elapsedSeconds / 3600)).toFixed(1)} km/h`;
 
-        if (paceSeconds < 240) {
+        if (paceSeconds < 180) {
+          category = 'World Class / Elite';
+          catColor = '#f43f5e';
+        } else if (paceSeconds < 240) {
           category = 'Sprint / Elite';
-          catColor = '#ef4444';
+          catColor = '#ec4899';
         } else if (paceSeconds < 285) {
           category = 'Fast / 5K-10K';
           catColor = '#ea580c';
@@ -2628,9 +3008,15 @@ class StrideMapApp {
         } else if (paceSeconds < 450) {
           category = 'Easy / Marathon';
           catColor = '#0284c7';
-        } else {
+        } else if (paceSeconds < 510) {
           category = 'Recovery / Jog';
           catColor = '#8b5cf6';
+        } else if (paceSeconds < 570) {
+          category = 'Pace 9 / Slow Jog';
+          catColor = '#6366f1';
+        } else {
+          category = 'Pace 10 / Brisk Walk';
+          catColor = '#64748b';
         }
       } else if (distKm <= 0.005) {
         paceStr = '0:00';
@@ -2772,7 +3158,20 @@ class StrideMapApp {
     visibleRoutes.forEach(r => {
       const startSec = parseToSeconds(r.startTime);
       const totalKm = this.calculateTotalDistance(r) / 1000;
-      const finishSec = totalKm > 0 ? (startSec + Math.round(totalKm * 480)) : (startSec + 3600); // Pace 8 (paling lambat)
+      
+      if (!r.activePaces) {
+        r.activePaces = new Set(LIVE_PACES.map(p => p.pace));
+      }
+      
+      const activePaceItems = LIVE_PACES.filter(p => r.activePaces.has(p.pace));
+      
+      let finishSec = startSec + 1800;
+      if (activePaceItems.length > 0 && totalKm > 0) {
+        const slowestRoutePaceSec = Math.max(...activePaceItems.map(p => p.paceSeconds));
+        finishSec = startSec + Math.round(totalKm * slowestRoutePaceSec);
+      } else if (totalKm > 0) {
+        finishSec = startSec + Math.round(totalKm * 600);
+      }
 
       if (startSec < minStart) minStart = startSec;
       if (finishSec > maxFinish) maxFinish = finishSec;
@@ -2782,19 +3181,15 @@ class StrideMapApp {
     if (maxFinish === -Infinity || maxFinish <= minStart) maxFinish = minStart + 3 * 3600;
 
     const sliderMin = Math.max(0, minStart - 600); // 10 menit sebelum start tercepat
-    const sliderMax = Math.min(86400, Math.max(sliderMin + 1800, maxFinish + 600)); // 10 menit setelah finish terlambat
+    const sliderMax = Math.min(86400, Math.max(sliderMin + 1800, maxFinish + 900)); // 15 menit ekstra setelah pelari aktif terakhir finish
 
     if (this.liveTimeSlider) {
       this.liveTimeSlider.min = sliderMin;
       this.liveTimeSlider.max = sliderMax;
       
-      // Jika simulasi sedang jeda / tidak berjalan, sesuaikan waktu simulasi langsung ke jam start
-      if (!this.liveSimulationRunning) {
-        this.liveCurrentSeconds = minStart;
-      } else {
-        if (this.liveCurrentSeconds < sliderMin) this.liveCurrentSeconds = sliderMin;
-        if (this.liveCurrentSeconds > sliderMax) this.liveCurrentSeconds = sliderMax;
-      }
+      // Sesuaikan waktu saat ini jika berada di luar rentang slider yang baru
+      if (this.liveCurrentSeconds < sliderMin) this.liveCurrentSeconds = sliderMin;
+      if (this.liveCurrentSeconds > sliderMax) this.liveCurrentSeconds = sliderMax;
       this.liveTimeSlider.value = this.liveCurrentSeconds;
     }
 
@@ -2952,7 +3347,7 @@ class StrideMapApp {
       chip.style.color = p.color;
       chip.innerHTML = `
         <span class="pace-color-dot" style="background-color: ${p.color};"></span>
-        <span>${p.name} (${p.pace}:00)</span>
+        <span>${p.name}</span>
       `;
       chip.addEventListener('click', () => {
         this.toggleLivePaceFilter(p.pace);
@@ -2961,16 +3356,75 @@ class StrideMapApp {
     });
   }
 
+  toggleRoutePace(routeId, paceNum) {
+    const route = this.routes.find(r => r.id === routeId);
+    if (!route) return;
+    if (!route.activePaces) {
+      route.activePaces = new Set(LIVE_PACES.map(p => p.pace));
+    }
+
+    if (route.activePaces.has(paceNum)) {
+      if (route.activePaces.size > 1) {
+        route.activePaces.delete(paceNum);
+      }
+    } else {
+      route.activePaces.add(paceNum);
+    }
+
+    this.saveToStorage();
+    this.initLiveSimulationTimeWindow();
+    this.updateLiveSimulation();
+  }
+
+  renderRoutePaceChips(chipsContainer, route) {
+    if (!chipsContainer || !route) return;
+    chipsContainer.innerHTML = '';
+    if (!route.activePaces) {
+      route.activePaces = new Set(LIVE_PACES.map(p => p.pace));
+    }
+    LIVE_PACES.forEach(p => {
+      const isActive = route.activePaces.has(p.pace);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `lrsc-pace-chip ${isActive ? 'active' : ''}`;
+      btn.textContent = `P${p.pace}`;
+      btn.title = `${p.name} for ${route.name} (${isActive ? 'Active - Click to hide' : 'Inactive - Click to show'})`;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleRoutePace(route.id, p.pace);
+      });
+      chipsContainer.appendChild(btn);
+    });
+  }
+
   toggleLivePaceFilter(paceNum) {
-    if (this.liveActivePaces.has(paceNum)) {
+    const isCurrentlyActive = this.liveActivePaces.has(paceNum);
+    if (isCurrentlyActive) {
       if (this.liveActivePaces.size > 1) {
         this.liveActivePaces.delete(paceNum);
       }
     } else {
       this.liveActivePaces.add(paceNum);
     }
+
+    // Sinkronkan juga ke semua rute aktif (master switch)
+    const willBeActive = this.liveActivePaces.has(paceNum);
+    this.routes.forEach(r => {
+      if (!r.activePaces) r.activePaces = new Set(LIVE_PACES.map(p => p.pace));
+      if (willBeActive) {
+        r.activePaces.add(paceNum);
+      } else {
+        if (r.activePaces.size > 1) {
+          r.activePaces.delete(paceNum);
+        }
+      }
+    });
+
     this.renderLivePaceChips();
+    // Hitung ulang rentang waktu slider simulasi secara dinamis sesuai pace aktif paling lambat saat ini
+    this.initLiveSimulationTimeWindow();
     this.updateLiveSimulation();
+    this.saveToStorage();
   }
 
   clearLiveRunnerMarkers() {
@@ -3037,8 +3491,12 @@ class StrideMapApp {
 
       let runnersRowsHtml = '';
 
+      if (!route.activePaces) {
+        route.activePaces = new Set(LIVE_PACES.map(p => p.pace));
+      }
+
       LIVE_PACES.forEach(pItem => {
-        if (!this.liveActivePaces.has(pItem.pace)) {
+        if (!route.activePaces.has(pItem.pace)) {
           const key = `${route.id}_p${pItem.pace}`;
           if (this.liveRunnerMarkers.has(key)) {
             this.map.removeLayer(this.liveRunnerMarkers.get(key));
@@ -3107,7 +3565,7 @@ class StrideMapApp {
             </div>
             <div style="font-size: 12px; font-weight: 700; color: ${route.color};">
               <span style="background-color: ${route.color}; color: #ffffff; padding: 1px 5px; border-radius: 4px; font-weight: 800; font-size: 10px; margin-right: 4px;">P${pItem.pace}</span>
-              Pace ${pItem.pace} Runner (${pItem.pace}:00/km &bull; ${pItem.speedKmH} km/h)
+              Pace ${pItem.pace} Runner &bull; ${pItem.speedKmH} km/h
             </div>
             <div style="color: #cbd5e1; margin-top: 3px;">
               Position: <strong>${statusText}</strong>
@@ -3147,12 +3605,17 @@ class StrideMapApp {
         `;
       });
 
+      if (runnersRowsHtml === '') {
+        runnersRowsHtml = `<div style="font-size: 0.72rem; color: #94a3b8; padding: 6px; text-align: center;"><i class="fa-solid fa-eye-slash"></i> No active paces for this route. Click a pace button above.</div>`;
+      }
+
       let routeCard = this.liveRunnerStatusList.querySelector(`.live-route-status-card[data-route-id="${route.id}"]`);
       if (!routeCard) {
         routeCard = document.createElement('div');
         routeCard.className = 'live-route-status-card';
         routeCard.setAttribute('data-route-id', route.id);
         routeCard.style.borderLeftColor = route.color;
+        routeCard.style.setProperty('--route-color', route.color);
 
         routeCard.innerHTML = `
           <div class="lrsc-header">
@@ -3162,6 +3625,10 @@ class StrideMapApp {
               <span style="font-size: 0.68rem; color: #64748b;">Start:</span>
               <input type="time" class="lrsc-time-input" value="${route.startTime || '06:00'}" data-route-id="${route.id}" title="Click to change start time for this route">
             </div>
+          </div>
+          <div class="lrsc-pace-selector" title="Active paces for ${route.name}">
+            <span class="lrsc-pace-label"><i class="fa-solid fa-person-running"></i> Paces:</span>
+            <div class="lrsc-pace-chips-row"></div>
           </div>
           <div class="lrsc-runners-table">
             ${runnersRowsHtml}
@@ -3180,6 +3647,9 @@ class StrideMapApp {
           timeInput.addEventListener('change', onTimeChange);
         }
 
+        const chipsRow = routeCard.querySelector('.lrsc-pace-chips-row');
+        this.renderRoutePaceChips(chipsRow, route);
+
         this.liveRunnerStatusList.appendChild(routeCard);
       } else {
         // Update elemen yang ada tanpa merusak fokus input saat user sedang mengetik
@@ -3187,11 +3657,15 @@ class StrideMapApp {
         if (titleEl) titleEl.textContent = `● ${route.name} (${totalKm.toFixed(2)} km)`;
         titleEl.style.color = route.color;
         routeCard.style.borderLeftColor = route.color;
+        routeCard.style.setProperty('--route-color', route.color);
 
         const timeInput = routeCard.querySelector('.lrsc-time-input');
         if (timeInput && timeInput !== document.activeElement && timeInput.value !== (route.startTime || '06:00')) {
           timeInput.value = route.startTime || '06:00';
         }
+
+        const chipsRow = routeCard.querySelector('.lrsc-pace-chips-row');
+        this.renderRoutePaceChips(chipsRow, route);
 
         const tableEl = routeCard.querySelector('.lrsc-runners-table');
         if (tableEl) tableEl.innerHTML = runnersRowsHtml;
